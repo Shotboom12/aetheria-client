@@ -13,7 +13,7 @@ Local race IDs are Kyrian 60 and Venthyr 61. Owned spells are 111100-111113 and 
 - Client: https://github.com/Shotboom12/aetheria-client
 - Server: https://github.com/Shotboom12/aetheria-server
 
-Keep matching packageVersion values on both sides. These are private repositories; no visibility or collaborator changes are part of this upload. No launcher/CDN release is included.
+Keep matching packageVersion values on both sides. Both repositories are public and can be viewed or downloaded without an invitation. No launcher/CDN release is included.
 
 ## Client integration
 

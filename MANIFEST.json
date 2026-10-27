@@ -1203,8 +1203,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 5914,
-      "sha256": "fc3e78355961e75bfcff9265c19cc15458fe79dde9084b9042dc674a4c75da2e"
+      "bytes": 5862,
+      "sha256": "77bbde193ca3474b83bc653760e832744ce8c32d954ea28286a8d2efa8919c49"
     },
     {
       "path": "tools/merge-spells.py",
