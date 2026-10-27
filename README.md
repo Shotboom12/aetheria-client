@@ -1,5 +1,11 @@
 # Kyrian and Venthyr integration package
 
+## Credits
+
+Special thanks to **Kalibro** for his frameworks and help, **Medviten** for his help and the **WHE module**, and **Saty** for the **x64 decompilation work**.
+
+See [CREDITS.md](CREDITS.md) for acknowledgements and [PROVENANCE.md](PROVENANCE.md) for source and asset attribution.
+
 Version: kyrian-venthyr-20261027-1. Both races are maintained together; later selected race updates will be normal commits to these package repositories.
 
 This is a developer integration overlay for the Aetheria/Esteria extended WotLK 3.3.5a client and matched AzerothCore fork. It is not a complete game, full source mirror, stock-client installer, or universal AzerothCore module. It contains only race assets, race source/scripts, scoped integration material and owned spell data.

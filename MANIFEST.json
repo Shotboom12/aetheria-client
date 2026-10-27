@@ -7,6 +7,31 @@
       "sha256": "dce7d401cd73f6c5c4bafaf375a9b200996e3732b0c396c1fbd09447e4645266"
     },
     {
+      "path": "CHANGELOG.md",
+      "bytes": 469,
+      "sha256": "035d9bfd1ebeb738064cec266854a2d07f68a4d12340754004ec0651c396837b"
+    },
+    {
+      "path": "CREDITS.md",
+      "bytes": 787,
+      "sha256": "6a7fcf3387c9efe7c0d24164e3e9de83a7ca192ce092e267af48cb0de97a3b13"
+    },
+    {
+      "path": "PROVENANCE.md",
+      "bytes": 1291,
+      "sha256": "e0a29ee085b7fb07f3e54d9fed7ef5e0f7549be9ad640dd8c87bba48f2d7229e"
+    },
+    {
+      "path": "README.md",
+      "bytes": 6153,
+      "sha256": "44f566a45c5e125dabeb8d54e5486ce7f4476bc2b00f8573a67c66bf602d48e7"
+    },
+    {
+      "path": "assets-manifest.json",
+      "bytes": 109870,
+      "sha256": "dc2c7d059291b46929e9949b7adf06cda2e0642f60538c10448e682741002797"
+    },
+    {
       "path": "assets/custom/kyrian/creature/kyrianfemale/orange.blp.zlib.001",
       "bytes": 7794,
       "sha256": "29a97051478b5dfa6895880af3e147e5493121d80fbed5e2273297042275a3a1"
@@ -1137,16 +1162,6 @@
       "sha256": "6711e0f6333a658092b16a851cd3505144a06b4df95d818c165a23ea1e0435a7"
     },
     {
-      "path": "assets-manifest.json",
-      "bytes": 109870,
-      "sha256": "dc2c7d059291b46929e9949b7adf06cda2e0642f60538c10448e682741002797"
-    },
-    {
-      "path": "CHANGELOG.md",
-      "bytes": 469,
-      "sha256": "035d9bfd1ebeb738064cec266854a2d07f68a4d12340754004ec0651c396837b"
-    },
-    {
       "path": "client-files/Data/Retail/EsteriaKyrian.bin",
       "bytes": 26064,
       "sha256": "9aec8590776ddac62e99c33b5e39db31ccffb8928a1131b5242e286fdab66a5c"
@@ -1195,16 +1210,6 @@
       "path": "package.json",
       "bytes": 1936,
       "sha256": "4b6d541cbc55651b6a070ae889c2bf5f15941d02136f9682213e061a471ba689"
-    },
-    {
-      "path": "PROVENANCE.md",
-      "bytes": 1008,
-      "sha256": "e84af52c07288cf8e59d9c09b7abda88db8708d6f71e9dd17ee9873763d2155a"
-    },
-    {
-      "path": "README.md",
-      "bytes": 5862,
-      "sha256": "77bbde193ca3474b83bc653760e832744ce8c32d954ea28286a8d2efa8919c49"
     },
     {
       "path": "tools/merge-spells.py",
