@@ -2,7 +2,7 @@
 
 ## Frameworks and contributors
 
-We credit **Kalibro** for his frameworks and help, **Medviten** for his help and the **WHE module**, and **Saty** for the **x64 decompilation work**. See [CREDITS.md](CREDITS.md). These acknowledgements supplement the original authorship and notices below.
+We credit [**Kalibros**](https://github.com/STRHercules) for his frameworks and help, **Medviten** for his help and the **WHE module**, and **Saty** for the **x64 decompilation work**. See [CREDITS.md](CREDITS.md). These acknowledgements supplement the original authorship and notices below.
 
 This package collects Aetheria-specific integration work from the current local customized AzerothCore and Esteria/wowdecomp source trees. Existing authorship, comments and notices in copied code/patch context remain applicable. Server base: AzerothCore Project; client upstream reference: https://github.com/STRHercules/wowdecomp. No claim of sole authorship or blanket relicensing of upstream code is made.
 

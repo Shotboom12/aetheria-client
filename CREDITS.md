@@ -2,7 +2,7 @@
 
 Aetheria's Kyrian and Venthyr integration builds on the frameworks, work, and help of others. Special thanks to:
 
-- **Kalibro** — frameworks, technical guidance, and continued help.
+- [**Kalibros**](https://github.com/STRHercules) — frameworks, technical guidance, and continued help.
 - **Medviten** — help and the **WHE module**.
 - **Saty** — the **x64 decompilation work** underlying this custom-client project.
 

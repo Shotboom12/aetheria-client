@@ -13,18 +13,18 @@
     },
     {
       "path": "CREDITS.md",
-      "bytes": 787,
-      "sha256": "6a7fcf3387c9efe7c0d24164e3e9de83a7ca192ce092e267af48cb0de97a3b13"
+      "bytes": 822,
+      "sha256": "a83f89e21846cd8385b1988d83a4ae34fe3305f5ded14fff8447a6a9f9dfa614"
     },
     {
       "path": "PROVENANCE.md",
-      "bytes": 1291,
-      "sha256": "e0a29ee085b7fb07f3e54d9fed7ef5e0f7549be9ad640dd8c87bba48f2d7229e"
+      "bytes": 1326,
+      "sha256": "346703f34a44ec681714988ce2a7cd4b847890d260df711cb619a8cc56730da9"
     },
     {
       "path": "README.md",
-      "bytes": 6153,
-      "sha256": "44f566a45c5e125dabeb8d54e5486ce7f4476bc2b00f8573a67c66bf602d48e7"
+      "bytes": 6188,
+      "sha256": "a8e7e6eabd2f842dc9012212e87cc9d59ce90ecc52ca0155c5cb47c044229426"
     },
     {
       "path": "assets-manifest.json",

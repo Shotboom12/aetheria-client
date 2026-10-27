@@ -2,7 +2,7 @@
 
 ## Credits
 
-Special thanks to **Kalibro** for his frameworks and help, **Medviten** for his help and the **WHE module**, and **Saty** for the **x64 decompilation work**.
+Special thanks to [**Kalibros**](https://github.com/STRHercules) for his frameworks and help, **Medviten** for his help and the **WHE module**, and **Saty** for the **x64 decompilation work**.
 
 See [CREDITS.md](CREDITS.md) for acknowledgements and [PROVENANCE.md](PROVENANCE.md) for source and asset attribution.
 
