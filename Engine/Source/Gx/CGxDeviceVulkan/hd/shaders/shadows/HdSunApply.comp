@@ -1,0 +1,22 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "HdSunCommon.glsl"
+void main(){ivec2 px=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(px,imageSize(sceneColour))))return;
+ vec2 frameUv=(vec2(px)+.5)*c.screen.xy;if(any(lessThan(frameUv,c.rect.xy))||any(greaterThanEqual(frameUv,c.rect.xy+1/c.rect.zw)))return;
+ vec4 colour=imageLoad(sceneColour,px);float z=linearDepth(px);vec4 lo=texelFetch(lowEndpoint,px,0),hi=texelFetch(highEndpoint,px,0);
+ bool valid=z>0&&matching(lo.a,z)&&matching(hi.a,z)&&lo.a*hi.a>0;
+ // HD: the grass over the ground: darkened by the ground's sun behind it (yellow in the coverage view)
+ if(overRecord(px,lo,hi,z)||looseGrass(px,lo,hi,z)){float g=texelFetch(contactSource,px,0).g;vec3 rgb=colour.rgb*mix(1.0,mix(c.contact.w,1.0,g),c.settings.w);
+  if(pc.flags.x==4u)rgb=vec3(1,1,0);else if(pc.flags.x==1u||pc.flags.x==3u)rgb=vec3(g);else if(pc.flags.x==7u)rgb=colour.rgb;
+  imageStore(sceneColour,px,vec4(rgb,colour.a));return;}
+ if(!valid){if(pc.flags.x==4u)imageStore(sceneColour,px,vec4(1,0,1,colour.a));return;}
+ float sun=texelFetch(contactSource,px,0).g;
+ float contact=texelFetch(contactSource,px,0).r;float visible=min(sun,contact);
+ vec3 delta=mix(lo.rgb,hi.rgb,visible); // Endpoint RGB is in engine RGB, unlike byte-swizzled scene storage.
+ if(c.jitter.z>.5)delta=delta.bgr;
+ vec3 rgb=colour.rgb+delta*c.settings.w;
+ // HD debug 5/6/7: the shaded endpoint, the sunlit endpoint, the engine's own colour (no replacement)
+ vec3 loD=c.jitter.z>.5?lo.bgr:lo.rgb,hiD=c.jitter.z>.5?hi.bgr:hi.rgb;
+ if(pc.flags.x==5u)rgb=colour.rgb+loD;else if(pc.flags.x==6u)rgb=colour.rgb+hiD;else if(pc.flags.x==7u)rgb=colour.rgb;
+ else if(pc.flags.x==1u)rgb=vec3(sun);else if(pc.flags.x==2u)rgb=vec3(contact);else if(pc.flags.x==3u)rgb=vec3(visible);else if(pc.flags.x==4u)rgb=vec3(0,1,0);
+ imageStore(sceneColour,px,vec4(rgb,colour.a));}

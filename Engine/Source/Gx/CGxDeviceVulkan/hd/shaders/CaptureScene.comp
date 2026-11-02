@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Candidate snapshot shader for a BeforeLiquids WXL stage. NOT wired into the client by this kit.
+// Dispatch ceil(width/8),ceil(height/8). This shader never writes the stage's working color image.
+// Existing WXL requires WRITES_COLOR to obtain colorView: CopyIn/CopyOut is an unnecessary but safe
+// temporary round trip. Optimize with a separately negotiated read-color flag only after integration.
+#version 450
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0,rgba8) uniform readonly image2D sceneColor;
+layout(set=0,binding=1) uniform sampler2D sceneDepth;
+layout(set=0,binding=2,rgba8) uniform writeonly image2D copiedColor;
+layout(set=0,binding=3,r32f) uniform writeonly image2D copiedRawDepth;
+layout(push_constant) uniform Push { ivec2 extent; uint swapRB; } pc;
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pos,pc.extent))) return;
+    vec4 color = imageLoad(sceneColor,pos);
+    if (pc.swapRB != 0u) color = color.bgra;
+    imageStore(copiedColor,pos,color);
+    // Preserve raw depth exactly; Cata's depthMode/format permutation must match this encoding.
+    // WXL world viewport depthMax is normally 0.94, not 1. Do not silently treat this as linear depth.
+    imageStore(copiedRawDepth,pos,vec4(texelFetch(sceneDepth,pos,0).r,0,0,0));
+}

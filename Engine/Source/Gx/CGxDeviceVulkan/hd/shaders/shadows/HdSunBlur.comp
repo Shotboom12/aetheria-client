@@ -1,0 +1,7 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "HdSunCommon.glsl"
+void main(){ivec2 px=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(px,imageSize(contactTarget))))return;float z=linearDepth(px);
+ ivec2 axis=pc.flags.y==0u?ivec2(1,0):ivec2(0,1);vec3 value=vec3(0);float total=0;
+ for(int i=-2;i<=2;++i){ivec2 tap=clamp(px+axis*i,ivec2(0),imageSize(contactTarget)-1);float d=linearDepth(tap);float w=exp(-float(i*i)*.5)*exp(-abs(z-d)/max(.015,z*.002));if((z==0)!=(d==0)||texelFetch(lowEndpoint,px,0).a*texelFetch(lowEndpoint,tap,0).a<0)w=0;value+=texelFetch(contactSource,tap,0).rgb*w;total+=w;}
+ vec3 v=total>0?value/total:vec3(1);imageStore(contactTarget,px,vec4(v,1));}

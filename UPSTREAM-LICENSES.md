@@ -1,0 +1,36 @@
+# Upstream license tracker (internal, must be completed before any push)
+
+Rule: do not publish a file whose license is unknown or forbids redistribution. Link to the upstream instead, or ask the author. Permission from the author is recorded in the last column.
+
+| Upstream | Used for | License | Source verified | Author OK to redistribute |
+| --- | --- | --- | --- | --- |
+| AzerothCore | Server core | AGPL/GPL (server tree LICENSE says GPL-2; confirm) | local LICENSE read | n/a |
+| Kalibros / STRHercules: EsteriaWoW, wowdecomp | Frameworks, Esteria races | Not visible on GitHub pages; sidebar suggests GPL-2.0 | NO | Owner says Kalibros asked for this repo |
+| Medviten | WHE module, Dark Iron, Mag'har, Ogre | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Dex | Drakkin female | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Yami | Arakkoa | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Uncle Snowzo | Jinyu | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| FrolickingFauns | Sylvari face textures | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Furioz / Corruption / Eunoia team | unknown items | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Project Reforged | Furbolg | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Sirus | Naga animations | unknown (Sirus is a commercial server; assets may not be redistributable) | NO | owner reports yes (2026-11-02); no written proof on file; confirm Sirus specifically covers redistribution |
+| WXL / Dokman | Race tooling | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Saty | x64 decompilation | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Lumenveil | Renderer | GPL-2 only (hub note); client GPL-3 compatibility unresolved | partly | n/a |
+| Azeroth Remastered (Madominator1) | Graphics | unknown | NO | owner reports EXPRESS permission to post/host (2026-11-02); credit stays with Madominator1, Aetheria only hosts download and updates; no written proof on file |
+| Forever | Water/lighting data | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
+| Easy Controller - Forever | Wheel art | MIT | via Kalibros commit note | n/a |
+
+## Server modules without a LICENSE file (as found 2026-11-02)
+
+mod-auctionsim, mod-azeroth-friend, mod-mana-loot-pet, mod-mana-speedflying, mod-questie-bridge. Owner to say who wrote each; add a license or author permission before publishing. Other modules carry their own LICENSE files, which must stay in the published tree.
+
+## Client source
+
+wowdecomp / Esteria client source (Kalibros fork), built on Saty's x64 decompilation. License of the client source tree not confirmed from GitHub pages; check the LICENSE in the checkout and Saty's/Kalibros' terms before publishing the client repo.
+
+Owner decision 2026-11-02: Allied races and other race model files that Medviten and Kalibros have already posted publicly will be included. For each such file, record the public URL where the author posted it (provenance), so the repo can link back to the original.
+
+mod-auctionsim keeps its data file (`auctionsim.dat`, price data scraped from a live realm per its README), by owner decision 2026-11-02, because the module needs it. Provenance of the scrape is the module author's; no separate permission on file.
+
+Highest risk items: Sirus animations and any race assets taken from other servers or paid packs. Default for those is "link and instructions only", no files in the repo.

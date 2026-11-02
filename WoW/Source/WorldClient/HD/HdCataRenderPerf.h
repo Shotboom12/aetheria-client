@@ -1,0 +1,33 @@
+// HD: fixed-storage CPU instrumentation for the Cata optimization integration.
+#pragma once
+#include <cstdint>
+namespace HD::CataRenderPerf {
+enum class Stage:uint32_t {Render,PrepareMap,WmoPrepare,Terrain,WmoDraw,Horizon,HorizonCull,SortCull,Entities,DetailDoodads,M2Animate,Shadows,RootWait,GroupWait,
+ // Whole image: wall time between two scene renders, and the world frame's parts outside CWorldScene::Render.
+ Frame,WorldFrame,M2Opaque,M2Alpha,DrawLists,HdOpaque,Liquid,Spells,PostFx,
+ // Inside the grass pass: per-chunk lights, shader constants, draws, and vertex/index refills.
+ GrassLights,GrassConstants,GrassDraw,GrassFill,
+ // Inside sortCull (CWorldScene::CullSortTable): its parts, summed over the 64 distance buckets.
+ CullVolumes,CullChunks,CullGroups,CullLiquid,CullEntitys,CullDoodads,CullOcclusion,CullHorizon,
+ // Inside cullChunks: the chunk's doodads (CullDoodadsExterior) and its render prep (terrain batch, grass creation).
+ CullChunkDoodads,CullChunkPrep,Count};
+enum class Counter:uint32_t {WmoDefs,WmoGroups,RootWaits,GroupWaits,AsyncReads,HorizonAll,HorizonCandidates,HorizonFallbacks,HorizonMismatch,GrassChunks,GrassDraws,GrassFills,
+ // Grass batches by models: one model (the Cata instancing can take them) or several sharing a texture (it cannot).
+ GrassSingleModel,GrassMixedModels,GrassInsts,
+ // hdGrassPack: vertices given to acquired pairs, and batches that did not fit (stream buffers instead).
+ GrassPackVertices,GrassPackAcquires,GrassPackFull,GrassPackIndices,GrassPackIndexFull,GrassPackEvicts,GrassFillSkipped,
+ // sortCull work: chunks tested, chunks kept, horizon buffer updates, doodads tested.
+ CullChunksTested,CullChunksKept,CullClipUpdates,CullDoodadsTested,Count};
+void Initialize(); void Shutdown(); bool Enabled();
+uint64_t Begin(); void End(Stage,uint64_t start); void Add(Counter,uint64_t amount=1); void FrameEnd(); void FrameStart();
+struct Scope {
+ Stage stage;uint64_t start;
+ explicit Scope(Stage s):stage(s),start(Begin()){}
+ ~Scope(){if(start)End(stage,start);}
+ Scope(const Scope&)=delete;Scope&operator=(const Scope&)=delete;
+};
+struct FrameScope {
+ uint64_t start=(FrameStart(),Begin());
+ ~FrameScope(){if(start){End(Stage::Render,start);FrameEnd();}}
+};
+}

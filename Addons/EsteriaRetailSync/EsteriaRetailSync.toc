@@ -1,0 +1,5 @@
+## Interface: 30300
+## Title: Esteria Retail Appearance Sync
+## Notes: Receives validated Retail customization records from the Esteria server.
+## Version: 1.0
+EsteriaRetailSync.lua
