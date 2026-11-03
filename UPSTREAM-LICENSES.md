@@ -20,6 +20,9 @@ Rule: do not publish a file whose license is unknown or forbids redistribution. 
 | Azeroth Remastered (Madominator1) | Graphics | unknown | NO | owner reports EXPRESS permission to post/host (2026-11-02); credit stays with Madominator1, Aetheria only hosts download and updates; no written proof on file |
 | Forever | Water/lighting data | unknown | NO | owner reports yes (2026-11-02); no written proof on file |
 | Easy Controller - Forever | Wheel art | MIT | via Kalibros commit note | n/a |
+| Morfium-G: wxl-seyris-tools | F9 toolkit, ported to x64 (Extensions/WxlHost/src/seyris) | no LICENSE file in the repo | NO | owner reports yes, port to x64 as we see fit (2026-11-03); no written proof on file |
+| WarcraftXL (WXL SDK header, event ids) | WXL extension API implemented by Extensions/WxlHost | GPL-3.0-or-later (header notice) | header read | n/a; GPL-3 vs the client's GPL-2 constraint is the same open question as Lumenveil |
+| Dear ImGui (Omar Cornut) | F9 overlay, vendored v1.91.9 | MIT | LICENSE.txt in Extensions/WxlHost/src/imgui | n/a |
 
 ## Server modules without a LICENSE file (as found 2026-11-02)
 

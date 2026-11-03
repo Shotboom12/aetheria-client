@@ -55,6 +55,11 @@ int32_t OsInputGet(OSINPUT* id, int32_t* param0, int32_t* param1, int32_t* param
 void OsInputSetMouseMode(OS_MOUSE_MODE mode);
 void OsInputSetMouseSpeed(float speed);
 void OsInputGetMousePosition(int32_t* x, int32_t* y);
+
+// Optional window-message filter, run first by OsWindowProc: return nonzero to consume the message, with *result
+// the window procedure's return value. Set by an extension (WxlHost); a null filter costs one pointer test.
+typedef int32_t (*OsInputMessageFilter)(void* window, uint32_t message, uintptr_t wparam, intptr_t lparam, intptr_t* result);
+void OsInputSetMessageFilter(OsInputMessageFilter filter);
 void OsInputSetMousePosition(int32_t x, int32_t y);
 int32_t OsGetDefaultWindowRect(tagRECT* rect);
 intptr_t OsWindowProc(void* window, uint32_t message, uintptr_t wparam, intptr_t lparam);

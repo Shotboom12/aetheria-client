@@ -57,6 +57,9 @@ Aetheria is built on the work of many people. Aetheria collects and integrates o
 - **Forever** - water and lighting data (fetched from its CDN, not shipped).
 - Easy Controller - Forever (MIT) - wheel art used by Kalibros' hot-swap.
 - **DBCTool by Foe** (MIT) - the DBC tool bundled with the WHE module.
+- **wxl-seyris-tools by Morfium-G** (https://github.com/Morfium-G/wxl-seyris-tools) - the shared WXL toolkit (cdbc reader/writer, table editor, settings and the F9 panel launcher), ported to our x64 client as `Extensions/WxlHost/src/seyris` with the author's permission.
+- **WarcraftXL** (GPL-3.0-or-later) - the extension API (`PluginApi.h`) that `Extensions/WxlHost` implements in-client for ported WXL modules; the WXL core itself is not part of this client.
+- **Dear ImGui by Omar Cornut and contributors** (MIT) - the F9 overlay, vendored (v1.91.9) in `Extensions/WxlHost/src/imgui`.
 - **mod-playerbots** and **iCore**'s city-life and pvp-life modules, **mod-transmog** and the other AzerothCore modules listed in [Modules.md](Modules.md); each module's author is credited in its own README and LICENSE.
 
 Original World of Warcraft assets belong to Blizzard Entertainment. No client files, MPQs or DBCs from the game are distributed here.

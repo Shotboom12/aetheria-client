@@ -1332,10 +1332,23 @@ int32_t OsGetDefaultWindowRect(tagRECT* rect) {
     return 1;
 }
 
+static OsInputMessageFilter s_messageFilter = nullptr;
+
+void OsInputSetMessageFilter(OsInputMessageFilter filter) {
+    s_messageFilter = filter;
+}
+
 // OFFSET: 0x0086A210
 intptr_t OsWindowProc(void* window, uint32_t message, uintptr_t wparam, intptr_t lparam) {
     HWND hwnd = static_cast<HWND>(window);
     UINT_PTR timer = 0;
+
+    if (s_messageFilter) {
+        intptr_t filtered = 0;
+        if (s_messageFilter(window, message, wparam, lparam, &filtered)) {
+            return filtered;
+        }
+    }
 
     switch (message) {
         case WM_SIZE:
