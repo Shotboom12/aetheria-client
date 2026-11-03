@@ -1,5 +1,5 @@
 {
-  "packageVersion": "kyrian-venthyr-20261027-1",
+  "packageVersion": "kyrian-venthyr-20261102-1",
   "files": [
     {
       "path": ".gitignore",
@@ -8,8 +8,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 469,
-      "sha256": "035d9bfd1ebeb738064cec266854a2d07f68a4d12340754004ec0651c396837b"
+      "bytes": 1868,
+      "sha256": "335ea13b89588a34b3559e1afb9261235352e11a171d6a35ea593126adccdf7d"
     },
     {
       "path": "CREDITS.md",
@@ -24,12 +24,12 @@
     {
       "path": "README.md",
       "bytes": 6188,
-      "sha256": "a8e7e6eabd2f842dc9012212e87cc9d59ce90ecc52ca0155c5cb47c044229426"
+      "sha256": "1e9d97dd85cfe05bad5bb1bc5c1ef972837a376ccb017dd2f53264100d754b9f"
     },
     {
       "path": "assets-manifest.json",
       "bytes": 109870,
-      "sha256": "dc2c7d059291b46929e9949b7adf06cda2e0642f60538c10448e682741002797"
+      "sha256": "c74c0c6fb653a20ee5db93c08349329106b57d2509e247a4b4b96d046a5d1d17"
     },
     {
       "path": "assets/custom/kyrian/creature/kyrianfemale/orange.blp.zlib.001",
@@ -423,23 +423,23 @@
     },
     {
       "path": "assets/custom/kyrian/native/kyrianfemale.m2.zlib.001",
-      "bytes": 6335715,
-      "sha256": "65901372137310a66ab49a99ba0780cfcdff245f951cb87980aeaf9e523a78af"
+      "bytes": 6319183,
+      "sha256": "bbbd9e455db638026303e5241bcf2b7e25660ab569c50fd5576355f45091e01a"
     },
     {
       "path": "assets/custom/kyrian/native/kyrianfemale00.skin.zlib.001",
-      "bytes": 217863,
-      "sha256": "7e41744b6895228c01c1d7230ebb2bbbe2f38c8cc084745848058ad50fe36494"
+      "bytes": 217644,
+      "sha256": "2eaa8516ff310d574d7d9222b74b2b52df353477bc7fd5d4f55b58d3f1f1bb0b"
     },
     {
       "path": "assets/custom/kyrian/native/kyrianmale.m2.zlib.001",
-      "bytes": 6022011,
-      "sha256": "06e6ed902d9697c0176fef95b859d8d38a68aa8a63d84d408f7ba6267d0c4570"
+      "bytes": 6012457,
+      "sha256": "160070af3e3d1985e72c6d71532b3ff2eec37ca7b66ce3a6b71b747a658cbc79"
     },
     {
       "path": "assets/custom/kyrian/native/kyrianmale00.skin.zlib.001",
-      "bytes": 221695,
-      "sha256": "a4a3b28b381f0a0ccef4ed5d4644a1a81fc0fc865fdebf380ecdd686b0c42a4b"
+      "bytes": 220205,
+      "sha256": "3255d7249131f7e0058cda3b9c3490411ebe6abdfece420f0db84155cb748658"
     },
     {
       "path": "assets/custom/kyrian/native/new-palettes/female/armor-armor-dark-teal.blp.zlib.001",
@@ -1038,8 +1038,8 @@
     },
     {
       "path": "assets/custom/venthyr/native/vampire_female00.skin.zlib.001",
-      "bytes": 274081,
-      "sha256": "b31950dfffab1e7b5f8e1de5419dbca376edbe78076d8f3522d985c4ca504e9a"
+      "bytes": 259039,
+      "sha256": "d22a6ef86e6a7d857f9c023d2f2e970b7590e7611b09c391e2a436df23182b88"
     },
     {
       "path": "assets/custom/venthyr/native/vampire_female0060-00.anim.zlib.001",
@@ -1103,8 +1103,8 @@
     },
     {
       "path": "assets/custom/venthyr/native/vampire_male00.skin.zlib.001",
-      "bytes": 336601,
-      "sha256": "7f2e8154f86d84f49fd3b76ab1876221e9a9510e712a464669207c0d8dc0b5e3"
+      "bytes": 318002,
+      "sha256": "95ac253e056f729e36eee49d49e25bf5d447091aee6c03b08c788dbc82c5aef8"
     },
     {
       "path": "assets/custom/venthyr/native/vampire_male0060-00.anim.zlib.001",
@@ -1208,8 +1208,8 @@
     },
     {
       "path": "package.json",
-      "bytes": 1936,
-      "sha256": "4b6d541cbc55651b6a070ae889c2bf5f15941d02136f9682213e061a471ba689"
+      "bytes": 1872,
+      "sha256": "e4c06a03be9ee81183c6b6490951e39a6ee32040b30e393ed8341fbc2de39ada"
     },
     {
       "path": "tools/merge-spells.py",

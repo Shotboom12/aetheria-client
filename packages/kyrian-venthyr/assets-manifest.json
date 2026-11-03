@@ -1017,53 +1017,53 @@
     },
     {
       "path": "custom/kyrian/native/kyrianfemale.m2",
-      "bytes": 18373830,
-      "sha256": "cdc34df6e4b4678970a23ee0e09b275f228c7c63f1810171fca7e5514e37125d",
+      "bytes": 18374840,
+      "sha256": "666b42862c6d925fee38c56e33e242124443ee7088667213ad443008fdfcfac8",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/kyrian/native/kyrianfemale.m2.zlib.001",
-          "bytes": 6335715,
-          "sha256": "65901372137310a66ab49a99ba0780cfcdff245f951cb87980aeaf9e523a78af"
+          "bytes": 6319183,
+          "sha256": "bbbd9e455db638026303e5241bcf2b7e25660ab569c50fd5576355f45091e01a"
         }
       ]
     },
     {
       "path": "custom/kyrian/native/kyrianfemale00.skin",
-      "bytes": 447676,
-      "sha256": "27ba20cabb3583a2e3a155e68b5a7346b8ebb10c7b4411c510f3701c2c4be3aa",
+      "bytes": 447604,
+      "sha256": "08c3f8f5edc50aa4d2389edad03a2851830d007dc5e7656e0c867ab2c27c554f",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/kyrian/native/kyrianfemale00.skin.zlib.001",
-          "bytes": 217863,
-          "sha256": "7e41744b6895228c01c1d7230ebb2bbbe2f38c8cc084745848058ad50fe36494"
+          "bytes": 217644,
+          "sha256": "2eaa8516ff310d574d7d9222b74b2b52df353477bc7fd5d4f55b58d3f1f1bb0b"
         }
       ]
     },
     {
       "path": "custom/kyrian/native/kyrianmale.m2",
-      "bytes": 17169876,
-      "sha256": "1ee5bcb1032ed1a1177e067b92541ecb2bb6875ed73a7eb1388044f87bf5618f",
+      "bytes": 17170884,
+      "sha256": "a92ba2224720f4802cb727c65bfb8cf755d80b44d3d41da07c09758b87d72556",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/kyrian/native/kyrianmale.m2.zlib.001",
-          "bytes": 6022011,
-          "sha256": "06e6ed902d9697c0176fef95b859d8d38a68aa8a63d84d408f7ba6267d0c4570"
+          "bytes": 6012457,
+          "sha256": "160070af3e3d1985e72c6d71532b3ff2eec37ca7b66ce3a6b71b747a658cbc79"
         }
       ]
     },
     {
       "path": "custom/kyrian/native/kyrianmale00.skin",
-      "bytes": 455264,
-      "sha256": "4d8f3a0d6ee7405d69e7b75b9582762c2160de0187a9122f84e859e03da9ce1c",
+      "bytes": 455040,
+      "sha256": "2b6ac39dd22a20f57bdb3d4ae8d83a69f9ef16b690dc0ddacf9907812f97a253",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/kyrian/native/kyrianmale00.skin.zlib.001",
-          "bytes": 221695,
-          "sha256": "a4a3b28b381f0a0ccef4ed5d4644a1a81fc0fc865fdebf380ecdd686b0c42a4b"
+          "bytes": 220205,
+          "sha256": "3255d7249131f7e0058cda3b9c3490411ebe6abdfece420f0db84155cb748658"
         }
       ]
     },
@@ -2617,13 +2617,13 @@
     {
       "path": "custom/venthyr/native/vampire_female00.skin",
       "bytes": 559300,
-      "sha256": "78c064a0a3867598e19b0e17a513091f74f4f6679e49904284ad7773ae516fea",
+      "sha256": "55fef8ef374caf449d7c7d4936fc04a904f1ee1d85514555cc161d53535c3565",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/venthyr/native/vampire_female00.skin.zlib.001",
-          "bytes": 274081,
-          "sha256": "b31950dfffab1e7b5f8e1de5419dbca376edbe78076d8f3522d985c4ca504e9a"
+          "bytes": 259039,
+          "sha256": "d22a6ef86e6a7d857f9c023d2f2e970b7590e7611b09c391e2a436df23182b88"
         }
       ]
     },
@@ -2786,13 +2786,13 @@
     {
       "path": "custom/venthyr/native/vampire_male00.skin",
       "bytes": 694352,
-      "sha256": "40b511ef639fddc70c83bcb026c9ddb6b53c556ea96ab6bb6f81968a7f158434",
+      "sha256": "994d63e9a0f0489f9844617b4c3000ffbd388e83a7010e4eec22056c43b4ca54",
       "providerArchive": "Patch-ZX.mpq",
       "parts": [
         {
           "path": "assets/custom/venthyr/native/vampire_male00.skin.zlib.001",
-          "bytes": 336601,
-          "sha256": "7f2e8154f86d84f49fd3b76ab1876221e9a9510e712a464669207c0d8dc0b5e3"
+          "bytes": 318002,
+          "sha256": "95ac253e056f729e36eee49d49e25bf5d447091aee6c03b08c788dbc82c5aef8"
         }
       ]
     },
