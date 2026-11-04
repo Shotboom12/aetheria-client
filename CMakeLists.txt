@@ -33,7 +33,7 @@ if (AETHERIA_NATIVE_FSR)
     add_compile_definitions(AETHERIA_NATIVE_FSR=1)
 endif ()
 option(WOWDECOMP_DLSS "Compile hd/dlss: needs the FSR device tier, not available yet" OFF)
-option(AETHERIA_NATIVE_DLSS "Native NVIDIA DLSS Super Resolution for Azeroth Remastered (hd/HdNativeDlss; needs AETHERIA_NATIVE_FSR and ThirdParty/DLSS, which stays local: never push it; nvngx_dlss.dll is loaded from <exe>/DLSS)" OFF)
+option(AETHERIA_NATIVE_DLSS "Native NVIDIA DLSS Super Resolution for Azeroth Remastered (hd/HdNativeDlss; needs AETHERIA_NATIVE_FSR and ThirdParty/DLSS (run Tools/Setup-DlssSdk.ps1 to fetch it from NVIDIA); nvngx_dlss.dll is loaded from <exe>/DLSS)" OFF)
 
 if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
     message(FATAL_ERROR "wowdecomp targets Windows only.")

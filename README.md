@@ -101,3 +101,7 @@ Server and client builds compile. Several races, the creator and the mounts are 
 ## License
 
 Each package follows its upstream's license, listed in [UPSTREAM-LICENSES.md](UPSTREAM-LICENSES.md) and `LICENSES/`. The server tree is GPL-2. Blizzard-derived assets are not distributed.
+
+## Azeroth Remastered mode: setup
+
+Lamps, Lumenveil, FSR 3.1 and DLSS on the native Vulkan device: see [docs/AZEROTH-REMASTERED-SETUP.md](docs/AZEROTH-REMASTERED-SETUP.md).

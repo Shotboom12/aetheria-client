@@ -9,7 +9,8 @@ For a module M (SPIR-V 1.0 vertex shader written by Tools/VulkanShaders, regs bl
   - outputs: location 16 = current clip position (the final gl_Position value), location 17 = previous clip position.
 The velocity fragment shader (GLSL, velocity.frag) turns those two into a motion vector. Everything is validated with spirv-val.
 
-Usage: velocity_variants.py --in <vertex dir> --manifest <manifest.txt> --out <dir> [--tools D:\\Tools\\spirv-tools\\bin] [--limit N] [--only md5]
+Usage: velocity_variants.py --in <VulkanShaders/vertex> --manifest <VulkanShaders/manifest.txt> --out <VulkanShaders/velocity/own/vertex>
+         --index <VulkanShaders/velocity/velocity-index.txt> [--tools <folder with spirv-dis/spirv-as/spirv-val>] [--limit N] [--only md5]
 """
 import argparse, os, re, subprocess, sys, tempfile
 
@@ -228,6 +229,8 @@ def main():
     ap.add_argument('--tools', default=r'D:\Tools\spirv-tools\bin')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--only', default='')
+    ap.add_argument('--index', default='', help='write the ownvel lines of velocity-index.txt here')
+    ap.add_argument('--rel', default='velocity/own/vertex', help='--out relative to the VulkanShaders folder, as written into the index')
     a = ap.parse_args()
     dis = os.path.join(a.tools, 'spirv-dis.exe'); asm = os.path.join(a.tools, 'spirv-as.exe'); val = os.path.join(a.tools, 'spirv-val.exe')
     os.makedirs(a.out, exist_ok=True)
@@ -253,7 +256,7 @@ def main():
     if a.only: skinned = [m for m in skinned if m == a.only]
     if a.limit: skinned = skinned[:a.limit]
     print('skinned vertex records: %d' % len(skinned))
-    good = bad = 0; reasons = {}
+    good = bad = 0; reasons = {}; made = []
     for md5 in skinned:
         src = os.path.join(a.indir, md5 + '.spv')
         if not os.path.exists(src):
@@ -277,8 +280,14 @@ def main():
             if r.returncode:
                 key = 'val: ' + (r.stderr.strip().splitlines()[0][:100] if r.stderr.strip() else '?')
                 reasons[key] = reasons.get(key, 0) + 1; bad += 1; os.remove(outspv); continue
-            good += 1
+            good += 1; made.append(md5)
     print('generated and validated: %d, failed: %d' % (good, bad))
+    if a.index:
+        with open(a.index, 'w', encoding='utf-8', newline='\n') as f:
+            f.write('# ownvel <md5 of the original D3D9 shader> <path relative to VulkanShaders>, written by velocity_variants.py\n')
+            for m in made:
+                f.write('ownvel %s %s/%s.vel.spv\n' % (m, a.rel.strip('/'), m))
+        print('index written: %s (%d lines)' % (a.index, len(made)))
     for k, v in sorted(reasons.items(), key=lambda x: -x[1])[:10]:
         print('  %5d  %s' % (v, k))
 
