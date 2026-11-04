@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#version 450
+// The FSR inputs made from the world's own depth, in one pass at the render size; no geometry is drawn again.
+//  - depth: the raw depth lies in the world viewport's range (0 .. 0.94 in this client: a viewport remap, NOT
+//    reversed-Z); normalized to the projection's clip z / w, 0 near, 1 far.
+//  - motion: CAMERA ONLY. The pixel's point is rebuilt from the depth with the current view-projection and
+//    projected with the previous one; anything that moved by itself (animated models, bones, wind, particles)
+//    gets the camera's motion only. previous UV - current UV, top-left origin, no jitter.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D sceneDepth;
+layout(r32f, binding = 1) uniform writeonly image2D outDepth;
+layout(rg16f, binding = 2) uniform writeonly image2D outMotion;
+layout(push_constant) uniform Params
+{
+    mat4 reproject;    // NDC now -> clip before: inverse(viewProj now) * viewProj before, row vectors, uploaded as is
+    vec4 depthRange;   // viewport minDepth, maxDepth, 0, 0
+    vec4 viewport;     // the world viewport: x, y (D3D9 centre shift and jitter included), width, height
+    vec4 extent;       // render width, height, 1 / width, 1 / height
+} c;
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(c.extent.x) || p.y >= int(c.extent.y)) return;
+    float raw = texelFetch(sceneDepth, p, 0).r;
+    float range = max(c.depthRange.y - c.depthRange.x, 1e-6);
+    float z = clamp((raw - c.depthRange.x) / range, 0.0, 1.0);
+    imageStore(outDepth, p, vec4(z));
+
+    // The pixel centre in the projection's NDC: the viewport carries the shift and the jitter, so this is the
+    // un-jittered position of the point the pixel shows. D3D NDC: y up; UV: y down.
+    vec2 ndc = vec2(2.0 * (float(p.x) + 0.5 - c.viewport.x) / c.viewport.z - 1.0,
+                    1.0 - 2.0 * (float(p.y) + 0.5 - c.viewport.y) / c.viewport.w);
+    vec4 before = c.reproject * vec4(ndc, z, 1.0);
+    vec2 motion = vec2(0.0);
+    if (before.w > 1e-7)
+    {
+        vec2 was = before.xy / before.w;
+        // UV difference = 0.5 * (x before - x now), -0.5 * (y before - y now)
+        motion = vec2(0.5 * (was.x - ndc.x), -0.5 * (was.y - ndc.y));
+        if (any(isnan(motion)) || any(isinf(motion))) motion = vec2(0.0);
+    }
+    imageStore(outMotion, p, vec4(motion, 0.0, 0.0));
+}

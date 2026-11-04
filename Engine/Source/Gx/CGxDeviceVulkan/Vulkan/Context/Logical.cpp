@@ -1,5 +1,8 @@
 // The logical device, its features and its queue.
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/Context/Internal.hpp"
+#ifdef AETHERIA_NATIVE_DLSS
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdNativeDlss.h"
+#endif
 
 namespace gxvk::vk::context::detail
 {
@@ -43,7 +46,7 @@ namespace gxvk::vk::context::detail
 
         // The swapchain, then what the optional capabilities add by name (Caps.cpp PlanCaps: the
         // memory budget, gl_Layer from the vertex stage, FP16 on a 1.1 device).
-        constexpr uint32_t kMaxExtensions = 6;
+        constexpr uint32_t kMaxExtensions = 20;
         const char* extensions[kMaxExtensions] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
         uint32_t    extensionCount = 1;
 
@@ -99,6 +102,10 @@ namespace gxvk::vk::context::detail
         const VkPhysicalDeviceFeatures plainFeatures = features;
         CapsChain capsChain;
         PlanCaps(features, capsChain, nullptr, extensions, extensionCount, kMaxExtensions);
+#ifdef AETHERIA_NATIVE_DLSS
+        // NVIDIA NGX (DLSS) names the device extensions it needs; only ones this adapter offers are added.
+        HD::NativeDlss::AddDeviceExtensions(g.iapi.EnumerateDeviceExtensionProperties, g.instance, g.physical, extensions, extensionCount, kMaxExtensions);
+#endif
         const bool richer = capsChain.head != nullptr || extensionCount > 1
                             || std::memcmp(&plainFeatures, &features, sizeof features) != 0;
 

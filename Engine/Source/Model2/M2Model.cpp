@@ -1,6 +1,11 @@
 #include "WoW/Source/WorldClient/HD/HdLights.h"
 #include "Engine/Source/Model2/M2AnimationKeys.h"
 #include "Engine/Source/Model2/M2BoneBudget.h"
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrRigid.h"
+#endif
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
+#include "Engine/Source/Model2/HdExtraLamps.h"
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -184,7 +189,10 @@ void CM2Model::DetachFromScene() {
             CM2Light* light = &this->m_lights[i].m_light;
             light->Unlink();
             light->m_scene = nullptr;
-            HD::LightsForget(light);
+            HD::LightsForget(light); // HD: hdLights keeps a lamp's last state while its model is in the scene
+#ifdef AETHERIA_HD_LAMP
+            HD::Lamp::Native::Forget(light);
+#endif
         }
     }
 
@@ -457,6 +465,9 @@ void CM2Model::ChangeEmittersFrameOfReference(const C44Matrix* matrix) {
 // VERIFY: 2e7cc77d auto
 // OFFSET: 0x00824460
 void CM2Model::ChangeFrameOfReference(const C44Matrix* matrix) {
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Rigid::Forget(this);
+#endif
     if (!(this->m_fFlags & 1)) {
         return;
     }
@@ -648,7 +659,10 @@ void CM2Model::FreeExternalResources() {
     if (this->m_lights) {
         for (uint32_t i = 0; i < data->m_lights.m_count; i++) {
             this->m_lights[i].m_light.SetVisible(0);
-            HD::LightsForget(&this->m_lights[i].m_light);
+            HD::LightsForget(&this->m_lights[i].m_light); // HD
+#ifdef AETHERIA_HD_LAMP
+            HD::Lamp::Native::Forget(&this->m_lights[i].m_light);
+#endif
         }
     }
 
@@ -2771,8 +2785,23 @@ void CM2Model::AnimateST() {
             visible = 0;
         }
 
+        if (visible && HD::ExtraLamps::HideLight(this->m_shared, this, i, data->m_lights.m_count)) visible = 0; // HD: hdExtraLampsObjects
+
+        // HD: our added lamp light is lit at night only (hdExtraLampsDay): colour from its tracks times the night
+        float night = HD::ExtraLamps::LightScale(this->m_shared, i, data->m_lights.m_count);
+        if (night >= 0.0f) {
+            float dir = light->m_diffuseIntensityTrack.m_currentValue * this->m_effectiveAlpha * night;
+            float amb = light->m_ambientIntensityTrack.m_currentValue * this->m_effectiveAlpha * night;
+            light->m_light.m_dirColor = C3Vector(light->m_diffuseColorTrack.m_currentValue.x * dir, light->m_diffuseColorTrack.m_currentValue.y * dir, light->m_diffuseColorTrack.m_currentValue.z * dir);
+            light->m_light.m_ambColor = C3Vector(light->m_ambientColorTrack.m_currentValue.x * amb, light->m_ambientColorTrack.m_currentValue.y * amb, light->m_ambientColorTrack.m_currentValue.z * amb);
+            if (!(night > 0.0f)) visible = 0;
+        }
+
         light->m_light.SetVisible(visible);
         light->m_light.m_stamp = this->m_scene->m_frameStamp;
+#ifdef AETHERIA_HD_LAMP
+        HD::Lamp::Native::Track(&light->m_light,reinterpret_cast<uintptr_t>(this));
+#endif
     }
 
     for (uint32_t i = 0; i < data->m_cameras.m_count; i++) {
@@ -4002,6 +4031,9 @@ M2BatchRange::M2BatchRange() {
 // VERIFY: 2ddf06e6 manual
 // OFFSET: 0x0082BE60
 CM2Model::CM2Model() {
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Rigid::Forget(this);
+#endif
     this->m_scaleSq = 0.0f;
     this->m_refCount = 1;
     this->m_fFlags = (this->m_fFlags & 0xFF800000) | 0x340;
@@ -4193,7 +4225,10 @@ void CM2Model::FreeInternalResources() {
     if (this->m_lights) {
         for (uint32_t i = 0; i < data->m_lights.m_count; i++) {
             this->m_lights[i].m_light.Unlink();
-            HD::LightsForget(&this->m_lights[i].m_light);
+            HD::LightsForget(&this->m_lights[i].m_light); // HD
+#ifdef AETHERIA_HD_LAMP
+            HD::Lamp::Native::Forget(&this->m_lights[i].m_light);
+#endif
         }
 
         this->m_lights = nullptr;
@@ -6636,6 +6671,9 @@ void CM2Model::SetupLighting() {
             this->m_lightingCallback(this, &this->m_lighting, this->m_lightingArg);
         }
 
+        #ifdef AETHERIA_HD_LAMP
+        HD::Lamp::Native::Repair(&this->m_lighting);
+        #endif
         this->m_lighting.SetupSunlight();
         this->m_lighting.CameraSpace();
     }
@@ -6978,6 +7016,10 @@ CM2Model::~CM2Model() {
     // Not in the original: the instance is still complete here.
     sExtensionMgr->OnModelDestroy(this);
 
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Rigid::Forget(this);
+#endif
+    HD::ExtraLamps::SetObjectModel(this, false); // HD
     CM2Model* model30 = this->m_model30;
 
     if (model30 && model30->m_refCount-- == 1) {

@@ -37,3 +37,12 @@ Owner decision 2026-11-02: Allied races and other race model files that Medviten
 mod-auctionsim keeps its data file (`auctionsim.dat`, price data scraped from a live realm per its README), by owner decision 2026-11-02, because the module needs it. Provenance of the scrape is the module author's; no separate permission on file.
 
 Highest risk items: Sirus animations and any race assets taken from other servers or paid packs. Default for those is "link and instructions only", no files in the repo.
+
+## Azeroth Remastered native port (2026-11-04)
+
+| Component | Use | License | Note |
+|---|---|---|---|
+| Azeroth Remastered 2026-11-03 source (Madominator1): hd/lamp, hd/lumen, hd/fsr, hd/dlss, WaystoneHD addon | Ported to Aetheria's native Vulkan device (Azeroth Remastered mode only) | GPL-3.0-or-later (source headers) | Lumenveil parts keep their own license files under hd/lumen/licences; the GPL-2-only question above still applies |
+| AMD FidelityFX SDK headers (ThirdParty/FidelityFX) | FSR 3.1 upscaling; the runtime DLLs are NOT included and are loaded from <exe>/FSR | MIT (ThirdParty/FidelityFX/license.md) | |
+| NVIDIA DLSS / NGX SDK 310.9.16 | DLSS Super Resolution (hd/HdNativeDlss) | NVIDIA RTX SDK license | NOT included. Build with AETHERIA_NATIVE_DLSS=ON only after placing the SDK in ThirdParty/DLSS yourself; nvngx_dlss.dll is loaded from <exe>/DLSS |
+| lumen/data/lampdata.bin | Lumenveil lamp table | not redistributed | NOT included |

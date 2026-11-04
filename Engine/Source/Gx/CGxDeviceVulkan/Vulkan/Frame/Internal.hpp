@@ -158,6 +158,11 @@ namespace gxvk::vk::frame::detail
         VkSemaphore   renderFinished[kMaxImages] = {};   ///< per IMAGE: only re-acquiring an image proves its present consumed it
         VkFence       imagesInFlight[kMaxImages] = {};
         texture::Image scene;                            ///< the offscreen colour image the present pass shows
+        texture::Image worldScene;                       ///< AR render scale: the world's colour image at render size (BeginWorldScale)
+        bool           worldActive = false;              ///< the world draws into worldScene instead of scene
+        texture::Image upscaleOut;                       ///< storage RGBA8 at display size an upscaler writes (SetUpscaler)
+        gxvk::vk::frame::UpscaleRecord upscaleRecord = nullptr;
+        void*          upscaleUser = nullptr;
 
         // --- targets ----------------------------------------------------------------------------------
         VkFormat    depthFormat = VK_FORMAT_UNDEFINED;
@@ -208,6 +213,9 @@ namespace gxvk::vk::frame::detail
     };
     extern State s;
 
+    /// The colour image the scene draws land on now: the render-scale world image while one is active, else the scene.
+    inline texture::Image& SceneImage() { return s.worldActive ? s.worldScene : s.scene; }
+
     // Frame.cpp
     bool EnsureFrame();
     bool BeginPass();
@@ -221,6 +229,9 @@ namespace gxvk::vk::frame::detail
     void Poll();
     void CollectRetired(bool all);
     void Retire(Retired& entry, uint64_t lastUsed);
+
+    // Upscale.cpp
+    bool RunUpscaler();
 
     // Images.cpp
     bool EnsureImageObjects(const context::Handles& h);

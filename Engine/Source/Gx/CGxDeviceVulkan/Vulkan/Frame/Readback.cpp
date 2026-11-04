@@ -34,12 +34,12 @@ namespace gxvk::vk::frame
 {
     bool CopyFromScene(texture::Image& dst, uint32_t layer, uint32_t level, const VkRect2D& src, const VkRect2D& dstRect, bool linear)
     {
-        return CopyFromImage(s.scene, dst, layer, level, src, dstRect, linear);
+        return CopyFromImage(SceneImage(), dst, layer, level, src, dstRect, linear);
     }
 
     bool CopyFromTarget(texture::Image& dst, const VkRect2D& src, const VkRect2D& dstRect, bool linear)
     {
-        return CopyFromImage(s.target.image ? *s.target.image : s.scene, dst, 0, 0, src, dstRect, linear);
+        return CopyFromImage(s.target.image ? *s.target.image : SceneImage(), dst, 0, 0, src, dstRect, linear);
     }
 
     bool CopyFromImage(const texture::Image& source, texture::Image& dst, uint32_t layer, uint32_t level,
@@ -94,7 +94,7 @@ namespace gxvk::vk::frame
         VkCommandBuffer cmd = Outside();
         if (!cmd) return false;
 
-        const VkImage targetImage = s.target.image ? s.target.image->handle : s.scene.handle;
+        const VkImage targetImage = s.target.image ? s.target.image->handle : SceneImage().handle;
         const uint32_t targetLayer = s.target.image ? s.target.layer : 0;
         const DepthBuffer* depth = nullptr;
         for (uint32_t i = 0; i < s.fbCount; ++i) {

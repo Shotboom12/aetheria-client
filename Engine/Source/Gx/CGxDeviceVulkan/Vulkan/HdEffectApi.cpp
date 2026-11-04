@@ -42,14 +42,18 @@ namespace gxvk::vk::hdeffect
             const bool target=(desc->usage&VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)!=0;
             const bool storage=(desc->usage&VK_IMAGE_USAGE_STORAGE_BIT)!=0;
             const bool format=desc->format==VK_FORMAT_R8G8B8A8_UNORM || desc->format==VK_FORMAT_R16G16B16A16_SFLOAT ||
-                desc->format==VK_FORMAT_R32_SFLOAT || (target && desc->format==VK_FORMAT_R16G16_SFLOAT);
+                desc->format==VK_FORMAT_R32_SFLOAT || (target && desc->format==VK_FORMAT_R16G16_SFLOAT) ||
+                (storage && (desc->format==VK_FORMAT_R32G32B32A32_SFLOAT || desc->format==VK_FORMAT_R32_UINT || desc->format==VK_FORMAT_R8_UNORM || desc->format==VK_FORMAT_R16G16B16A16_SNORM)); // Lumenveil executor targets
             constexpr VkImageUsageFlags supported=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|
                 VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-            if(!format || (desc->usage&~supported) || (target && storage) || ((target||storage) && desc->mipLevels!=1))return nullptr;
+            // Aetheria 2026-11-03: a mipped storage-flagged image (hd/lumen noise: uploaded per mip, then sampled) is made as a plain mipped texture;
+            // a render target or a single-level storage image keep their own paths.
+            const bool mippedSampled=storage && !target && desc->mipLevels>1;
+            if(!format || (desc->usage&~supported) || (target && storage) || (target && desc->mipLevels!=1) || (storage && !mippedSampled && desc->mipLevels!=1))return nullptr;
             auto* image=static_cast<texture::Image*>(std::malloc(sizeof(texture::Image)));if(!image)return nullptr;
             new(image) texture::Image();
             const bool ok=target?texture::CreateTarget(desc->width,desc->height,1,false,desc->format,*image):
-                storage?texture::CreateStorage(desc->width,desc->height,desc->format,*image):
+                (storage && !mippedSampled)?texture::CreateStorage(desc->width,desc->height,desc->format,*image):
                 texture::CreateMipped(desc->width,desc->height,desc->mipLevels,desc->format,*image);
             if(!ok){std::destroy_at(image);std::free(image);return nullptr;}
             *out={image->handle,image->view};return image;

@@ -202,6 +202,10 @@ void World() {
     Info(currentMaps.serial?"native fog active with native sun shadow maps; same-frame water-plane clipping available":
          "native fog active; compatible sun shadow maps unavailable; same-frame water-plane clipping available");
 }
+// HD 2026-11-03: read-only views for hd/lumen (the Lumenveil snapshot of Azeroth Remastered), same functions BuildLive uses.
+bool CurrentScatter(uint64_t serial,VkImageView& view,VkExtent2D& extent){return effect.CurrentScatter(serial,view,extent);}
+float ForeverFogHere(HD::ForeverFog& fog){fog={};return CurrentForeverFog(fog);}
+bool ReferenceRequested(){return enabled&&enabled->m_intValue!=0;}
 bool Shutdown() {
     if(!initialized && !scratch.handle)return true;
     const auto last=std::max(scratchLast,effect.LastUsed());

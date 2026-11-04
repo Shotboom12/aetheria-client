@@ -1,0 +1,22 @@
+#version 450
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Advanced Micro Devices, Inc.
+// AMD FSR3 auto-reactive max-component formula; see LICENSE-AMD.txt in this kit.
+// Composition estimate / two-segment accumulation: Copyright (c) 2026 Waystone contributors.
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D opaqueOnly;
+layout(binding=1) uniform sampler2D afterAlpha;
+layout(binding=2,r8) uniform image2D reactiveMask;
+layout(binding=3,r8) uniform image2D compositionMask;
+layout(push_constant) uniform Push {float scale;float threshold;uint view;float cutoff;} pc;
+void main(){
+ ivec2 p=ivec2(gl_GlobalInvocationID.xy);ivec2 size=imageSize(reactiveMask);if(any(greaterThanEqual(p,size)))return;
+ vec3 a=texelFetch(opaqueOnly,p,0).rgb,b=texelFetch(afterAlpha,p,0).rgb;
+ vec3 delta=abs(b-a);float d=max(max(delta.r,delta.g),delta.b);
+ if(any(isnan(a))||any(isinf(a))||any(isnan(b))||any(isinf(b)))d=1;
+ float r=clamp(d*pc.scale,0,1),c=clamp((d-.5*pc.threshold)/max(pc.threshold,1./255.),0.,1.); // soft ramp (0 at threshold/2, 1 at 1.5*threshold): a pixel hovering at the threshold no longer flips 0/1 every frame
+ r=r<pc.cutoff?0.0:r; // below the cutoff the change is noise (jitter, filtering), not a transparency: keep the history
+
+ imageStore(reactiveMask,p,vec4(max(imageLoad(reactiveMask,p).r,r)));
+ imageStore(compositionMask,p,vec4(max(imageLoad(compositionMask,p).r,c)));
+}

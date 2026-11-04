@@ -35,6 +35,8 @@ public:
     bool Record(const gxvk::vk::hdeffect::StageContext& ctx,const Parameters& parameters,const ShadowMaps& maps={});
     bool Shutdown(uint64_t completedSerial);
     uint64_t LastUsed() const;
+    // This frame's fog transmittance image (RGBA16F, GENERAL), for hd/lumen's halos; false when this frame's pass did not share it.
+    bool CurrentScatter(uint64_t serial,VkImageView& view,VkExtent2D& extent) const;
     const char* Error() const;
     Effect()=default;
     Effect(const Effect&)=delete;

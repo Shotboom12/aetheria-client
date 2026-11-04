@@ -1,3 +1,4 @@
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -305,6 +306,9 @@ void CShaderEffect::SetDefaultShaders(uint32_t lightCount) {
 // OFFSET: 0x008731C0
 void CShaderEffect::SetLightingEnabled(int32_t enabled) {
     CShaderEffect::s_lightEnabled = enabled;
+#ifdef AETHERIA_HD_LAMP
+    HD::Lamp::Native::SnapshotDraw(0); // clear metadata also for unlit/early-return draws
+#endif
 
     if (!CShaderEffect::s_enableShaders) {
         GxRsSet(GxRs_Lighting, enabled);
@@ -594,6 +598,9 @@ void CShaderEffect::SetLocalLighting(CM2Lighting* lighting, int32_t enabled, con
         GxShaderConstantsSet(GxSh_Vertex, 17, reinterpret_cast<const float*>(&CShaderEffect::s_localLights), sizeof(LocalLights) / sizeof(C4Vector));
     }
 
+#ifdef AETHERIA_HD_LAMP
+    HD::Lamp::Native::SnapshotDraw(HD::Lamp::Native::SlotMask(lighting,enabled!=0));
+#endif
     CShadowCache::SetShadowMapGenericInterior(lighting->m_flags & 8);
 }
 

@@ -1,0 +1,14 @@
+#version 450
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Aetheria FSR object motion: where the velocity replay wrote a unit's motion (alpha 1), that motion replaces the camera-only motion.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D objectMotion;   // RGBA16F: rg = previous UV - current UV, a = covered
+layout(rg16f, binding = 1) uniform writeonly image2D motion;   // the camera motion HdFsrPrep wrote; objects overwrite their pixels
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(motion);
+    if (p.x >= size.x || p.y >= size.y) return;
+    vec4 o = texelFetch(objectMotion, p, 0);
+    if (o.a > 0.5) imageStore(motion, p, vec4(o.rg, 0.0, 0.0));
+}

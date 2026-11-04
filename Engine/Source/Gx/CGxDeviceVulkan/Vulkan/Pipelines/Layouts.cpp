@@ -88,10 +88,11 @@ namespace gxvk::vk::pipelines::detail
         push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         push.offset     = 0;
         push.size       = kPushBytes;
-        const VkDescriptorSetLayout sets[2] = { e.set0, s.regsLayout };
+        // Set 2 (the previous register file of an FSR velocity draw) uses the same dynamic-uniform layout as set 1; ordinary pipelines never read it.
+        const VkDescriptorSetLayout sets[3] = { e.set0, s.regsLayout, s.regsLayout };
         VkPipelineLayoutCreateInfo layout = {};
         layout.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layout.setLayoutCount         = 2;
+        layout.setLayoutCount         = 3;
         layout.pSetLayouts            = sets;
         layout.pushConstantRangeCount = 1;
         layout.pPushConstantRanges    = &push;

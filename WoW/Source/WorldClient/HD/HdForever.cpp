@@ -1,3 +1,5 @@
+#include "WoW/Source/WorldClient/HD/HdTime.h"
+#include "WoW/Source/WorldClient/HD/HdDayNightMath.h"
 #include "WoW/Source/WorldClient/HD/HdForever.h"
 #include <cstdio>
 #include <cstdlib>
@@ -242,32 +244,12 @@ namespace {
     }
 
     // Same search as the client's GetBandTimeRange (Lights.cpp), with up to 32 keys.
-    void BandTimeRange(const int32_t* times, int32_t count, int32_t time, int32_t& index, float& t, int32_t& next) {
-        next = 0;
-        t = 0.0f;
-        index = 0;
-        if (count <= 0) return;
-        do {
-            int32_t start = times[index];
-            next = (index + 1) % count;
-            int32_t end = times[next];
-            if (end > start) {
-                if (time >= start && time <= end) {
-                    t = static_cast<float>(time - start) / (end - start);
-                    return;
-                }
-            } else if (time <= end || time >= start) {
-                end += 2880;
-                if (time < start) time += 2880;
-                t = static_cast<float>(time - start) / (end - start);
-                return;
-            }
-            index++;
-        } while (index < count);
-    }
+    void BandTimeRange(const int32_t* times, int32_t count, float time, int32_t& index, float& t, int32_t& next) {
+    HD::DayNightMath::Range(times,count,time,index,t,next,HD::DayNightSmoothingEnabled());
+}
 
     // A band's colour at this time (0..1), blended between its two time keys like ForeverIntBand. False when empty.
-    bool BandColorAt(const Band& b, int32_t time, float* out) {
+    bool BandColorAt(const Band& b, float time, float* out) {
         if (!b.count) return false;
         int32_t index;
         float t;
@@ -340,7 +322,7 @@ int32_t HD::RealLightParamsId(const LightParamsRec* params) {
     return record ? record->realId : params->m_id;
 }
 
-bool HD::ForeverIntBand(const LightParamsRec* params, int32_t band, int32_t time, CImVector* color) {
+bool HD::ForeverIntBand(const LightParamsRec* params, int32_t band, float time, CImVector* color) {
     const HdRecord* record = FindRecord(params);
     if (!record || band < 0 || band >= kBands) return false;
     const Band& b = record->setting->bands[band];
@@ -369,7 +351,7 @@ float HD::ForeverBandWeight(int32_t band) {
     return weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
 }
 
-bool HD::ForeverAmbientsAt(const LightRec* light, int32_t slot, int32_t time, float* sky, float* horizon, float* ground) {
+bool HD::ForeverAmbientsAt(const LightRec* light, int32_t slot, float time, float* sky, float* horizon, float* ground) {
     RegisterCVars();
     if (!s_enabled || !s_enabled->m_intValue || !light || slot < 0 || slot > 7) return false;
     if (!s_triedLoad) Load();
@@ -388,7 +370,7 @@ bool HD::ForeverAmbientsAt(const LightRec* light, int32_t slot, int32_t time, fl
     return true;
 }
 
-bool HD::ForeverFogAt(const LightRec* light, int32_t slot, int32_t time, ForeverFog* out) {
+bool HD::ForeverFogAt(const LightRec* light, int32_t slot, float time, ForeverFog* out) {
     RegisterCVars();
     if (!s_triedLoad) Load();
     if (!light || slot < 0 || slot > 7) return false;
@@ -432,6 +414,12 @@ void HD::LerpFogLayer(ForeverFogLayer& a, const ForeverFogLayer& b, float t) {
         a.density = density;
         return;
     }
+    // HD: flags remain discrete metadata, but shader-visible shadow and height features blend continuously.
+    const float sunA=FogShadowWeight(a),sunB=FogShadowWeight(b);
+    const float relA=FogRelativeHeightWeight(a),relB=FogRelativeHeightWeight(b);
+    a.shadowWeight=sunA+(sunB-sunA)*t;
+    a.relativeHeightWeight=relA+(relB-relA)*t;
+    a.featureWeightsValid=true;
     if (t >= 0.5f) a.flags = b.flags;
     for (int32_t c = 0; c < 3; c++) {
         a.diffuse[c] += (b.diffuse[c] - a.diffuse[c]) * t;
@@ -451,7 +439,7 @@ void HD::LerpFogLayer(ForeverFogLayer& a, const ForeverFogLayer& b, float t) {
     a.exponent += (b.exponent - a.exponent) * t;
 }
 
-bool HD::ForeverGradingAt(const LightRec* light, int32_t slot, int32_t time, int32_t* lutA, int32_t* lutB, float* t) {
+bool HD::ForeverGradingAt(const LightRec* light, int32_t slot, float time, int32_t* lutA, int32_t* lutB, float* t) {
     RegisterCVars();
     if (!s_triedLoad) Load();
     if (!light || slot < 0 || slot > 7) return false;

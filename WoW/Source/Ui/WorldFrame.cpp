@@ -10,6 +10,10 @@
 #include "WoW/Source/WorldClient/HD/HdNativeFog.h"
 #include "WoW/Source/WorldClient/HD/HdNativeAO.h"
 #include "WoW/Source/WorldClient/HD/HdNativeBloom.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdLumenNative.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdRenderScale.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdNativeFsr.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/Jitter.hpp"
 #include "WoW/Source/WorldClient/HD/HdNativeGrade.h"
 #include "WoW/Source/WorldClient/HD/HdTime.h"
 #include "Engine/Source/Lumenveil/Lumenveil.h"
@@ -22,6 +26,9 @@
 #include "WoW/Source/WorldClient/HD/HdGI.h"
 #include "WoW/Source/WorldClient/HD/HdGrade.h"
 #include "WorldFrame.h"
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrPass.h"
+#endif
 #include "Engine/Source/Base/ConvertUTF.h"
 #include <cstring>
 #include <typeinfo>
@@ -1387,6 +1394,7 @@ void CGWorldFrame::SetScreenEffect(int32_t effect) {
 // VERIFY: 01c7ec1b manual
 // OFFSET: 0x004F8730
 int32_t CGWorldFrame::Update(const void* data, void* param) {
+    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::IdleWorld); // HD: hdCataRenderPerf
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
 
     if (player) {
@@ -1756,6 +1764,7 @@ void CGWorldFrame::OnWorldRender() {
         this->m_namePlateFlags &= ~0x2;
     }
 
+    HD::RenderScale::Begin(); // Azeroth Remastered: hdRenderScale (off at 1): the world below draws into a smaller scene image
     CShaderEffect::UpdateProjMatrix();
     // Not in the original binary: the outline's target list is built before any model batch goes by, because a
     // target is stamped from the batches of the frame it is drawn in.
@@ -1767,10 +1776,12 @@ void CGWorldFrame::OnWorldRender() {
     if (useAetheriaLegacy) HD::NativeShadows::BeginWorld();
     if (useAzerothRemastered) HD::NativeWaterService::BeginWorld();
     const auto* nativeWater=CVar::LookupRegistered("hdCataWater");
-    gxvk::vk::hdcapture::BeginScene(useAzerothRemastered && g_theGxDevicePtr && g_theGxDevicePtr->DeviceApi() == GxApi_Vulkan && ((mirrorCapture && mirrorCapture->m_intValue != 0) || (nativeWater && nativeWater->m_intValue != 0) || HD::ForeverWater::Requested() || (useAetheriaLegacy && HD::NativeGeometry::Wanted())));
+    gxvk::vk::hdcapture::BeginScene(useAzerothRemastered && g_theGxDevicePtr && g_theGxDevicePtr->DeviceApi() == GxApi_Vulkan && ((mirrorCapture && mirrorCapture->m_intValue != 0) || (nativeWater && nativeWater->m_intValue != 0) || HD::ForeverWater::Requested() || HD::LumenNative::GBufferWanted() || (useAetheriaLegacy && HD::NativeGeometry::Wanted())));
     CWorld::Render(this->m_camera->m_position, this->m_elapsedSec);
     // The native water/mirror capture needs this frame's camera snapshot; only the legacy path used to take it.
     if (useAetheriaLegacy || (useAzerothRemastered && g_theGxDevicePtr && g_theGxDevicePtr->DeviceApi() == GxApi_Vulkan && ((mirrorCapture && mirrorCapture->m_intValue != 0) || (nativeWater && nativeWater->m_intValue != 0) || HD::ForeverWater::Requested()))) HD::NativeBloom::CaptureScene();
+    if (useAzerothRemastered) gxvk::vk::jitter::BeginWorld(); // FSR device tier: next jitter sample (inert while no upscaler asks)
+    if (useAzerothRemastered) HD::LumenNative::BeginWorld(); // Azeroth Remastered: lamp frame + Lumen snapshot (hd/lamp, hd/lumen)
     CMap::RenderFootprints();
     ClntObjMgrEnumVisibleObjects(UnitPostAnimateProc, this);
     CGUnit_C::NamePlateSetResortAll(false);
@@ -1807,6 +1818,9 @@ void CGWorldFrame::OnWorldRender() {
     GxuFlushDrawList(GxuCat_0, *World::GetCamPos());
     HD::ContactShadowPrepare();
     CWorldScene::RenderDetailDoodads();
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Pass::MaskBoundary(0);
+#endif
     HD::ContactShadowRenderOpaque();
     HD::GIRenderOpaque();
     HD::Frame::Close();
@@ -1817,6 +1831,8 @@ void CGWorldFrame::OnWorldRender() {
         HD::NativeShadows::World();
         HD::NativeAO::World(); // Opaque world/models/detail complete; liquids and spell visuals follow.
     }
+    if (useAzerothRemastered) HD::NativeFsr::AfterOpaque(); // opaque-only colour copy for the FSR reactive mask (only while FSR runs)
+    if (useAzerothRemastered) HD::LumenNative::AfterOpaque(); // Opaque world complete (hd/lumen point 0)
     if (useAzerothRemastered) HD::NativeWaterService::BeforeLiquids();
     if (useAzerothRemastered) {
         HD::NativeWaterPlane::BeforeLiquids();
@@ -1848,7 +1864,11 @@ void CGWorldFrame::OnWorldRender() {
         DrawSpellCursorShadow(0x20000);
     }
 
+    if (useAzerothRemastered) HD::LumenNative::World(); // Lumen fog, shafts and lamp halos; the reference fog below skips when Lumen composed the fog
     HD::Fog::World(); // Azeroth Remastered's pass is mode-gated; exact post-world, pre-spell-visual boundary.
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Pass::MaskBoundary(1);
+#endif
     SpellVisualsTick();
     SpellVisualsRender();
     CGUnit_C::RenderMissileTrajectoryTargetingTexture();
@@ -1858,9 +1878,11 @@ void CGWorldFrame::OnWorldRender() {
     GxuFlushDrawList(GxuCat_1, *World::GetCamPos());
     DayNight::RenderGlares();
     PlayerNameUpdateLate();
+    if (useAzerothRemastered) HD::LumenNative::Bloom(); // Lumen spell lights, before bloom and grade
     HD::Bloom::World();
     HD::Grade::World();
     HD::Frame::Close();
+    if (useAzerothRemastered) gxvk::vk::jitter::EndWorld();
 
     if (CWorld::enables & 0x20000000) {
         GxMasterEnableSet(GxMasterEnable_PolygonFill, 1);
@@ -1876,6 +1898,7 @@ void CGWorldFrame::OnWorldRender() {
     LootBeam::Update(this->m_elapsedSec);
     CUnitOutline::Composite();
 
+    HD::RenderScale::End(); // the scaled world is stretched onto the full scene; world text and interface stay sharp
     g_theGxDevicePtr->RsPop();
     SmartScreenRectClearGrid(1);
     CGChatBubbleFrame::OnWorldRender(this);

@@ -72,7 +72,7 @@ struct Effect::Impl {
     VkSampler point{},comparison{};
     uint32_t failedWidth=0,failedHeight=0;
     struct Slot {void* handle=nullptr;gxvk::vk::hdeffect::BufferInfo buffer{};VkDescriptorSet set{};uint64_t serial=0;
-        void* scatter[2]{};gxvk::vk::hdeffect::ImageInfo scatterInfo[2]{};}; // HD: RGBA16F in-scatter + transmittance, A then B
+        void* scatter[2]{};gxvk::vk::hdeffect::ImageInfo scatterInfo[2]{};bool shareScatter=false;}; // HD: RGBA16F in-scatter + transmittance, A then B
     std::array<Slot,8> slots{};
 #define FOG_FUNCTIONS(X) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
@@ -220,6 +220,7 @@ bool Effect::Record(const gxvk::vk::hdeffect::StageContext& ctx,const Parameters
     }
     barrier.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_TRANSFER_READ_BIT;
     s->CmdPipelineBarrier(ctx.cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT,0,1,&barrier,0,nullptr,0,nullptr);
+    slot.shareScatter=split&&mode==0; // HD 2026-11-03: the transmittance image hd/lumen reads for its halos (CurrentScatter)
     slot.serial=s->last=ctx.serial;s->error="";return true;
 }
 bool Effect::Shutdown(uint64_t completed) {
@@ -238,6 +239,11 @@ bool Effect::Shutdown(uint64_t completed) {
     delete s;state_=nullptr;return true;
 }
 uint64_t Effect::LastUsed() const {return state_?state_->last:0;}
+bool Effect::CurrentScatter(uint64_t serial,VkImageView& view,VkExtent2D& extent) const {
+    view=VK_NULL_HANDLE;extent={};if(!state_||!serial)return false;
+    for(const auto& slot:state_->slots)if(slot.serial==serial&&slot.shareScatter&&slot.scatter[1]){view=slot.scatterInfo[1].view;extent={state_->width,state_->height};return true;}
+    return false;
+}
 const char* Effect::Error() const {return state_?state_->error:"fog not initialized";}
 
 }

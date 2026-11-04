@@ -3,7 +3,9 @@
 // here the depth is CopyDepth and the composite writes the shared frame (HdFrame.h). The client's three sun shadow
 // bands are bound as engine textures (the backend's are R32F colour targets: the shader's raw-depth path), and there
 // is no Cata water plane yet. Layer choice, the constant rows, the march and the blurs are the donor's.
+#include "WoW/Source/WorldClient/HD/HdTime.h"
 #include "WoW/Source/WorldClient/HD/HdFog.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdLumenNative.h"
 
 #include <algorithm>
 #include <cmath>
@@ -133,7 +135,7 @@ namespace {
     }
 
     // Forever's fog for one light, clear weather blended to storm like the client's colours.
-    bool LightFog(const LightRec* light, int32_t time, float storm, HD::ForeverFog& out) {
+    bool LightFog(const LightRec* light, float time, float storm, HD::ForeverFog& out) {
         if (!HD::ForeverFogAt(light, 0, time, &out)) return false;
         if (storm > 0.0f) {
             HD::ForeverFog stormFog;
@@ -150,7 +152,7 @@ namespace {
         const DayNight::DNInfo& info = DayNight::g_dnInfo;
         const TSGrowableArray<const LightRec*>& lights = DayNight::g_areaLights;
         if (!lights.m_count) return 0.0f;
-        int32_t time = static_cast<int32_t>(info.m_dayProgression * 2880.0f);
+        float time = HD::DayNightBandTime(info.m_dayProgression * 2880.0f);
         float storm = info.m_stormBlend;
 
         bool have = LightFog(lights.m_data[0], time, storm, fog);
@@ -247,8 +249,8 @@ namespace {
             Row& e = p.r[13 + i * 5];
             a = { std::pow(l.emissive[0], 2.2f) * base, std::pow(l.emissive[1], 2.2f) * base, std::pow(l.emissive[2], 2.2f) * base, l.density * .0035f * den };
             b = { std::pow(l.diffuse[0], 2.2f) * l.intensity * lit, std::pow(l.diffuse[1], 2.2f) * l.intensity * lit, std::pow(l.diffuse[2], 2.2f) * l.intensity * lit, l.g };
-            c = { l.start, l.strength, l.exponent, (l.flags & 1) ? 1.0f : 0 };
-            float rel = (l.flags & 2) ? dn.m_playerPos.z : 0;
+            c = { l.start, l.strength, l.exponent, HD::SmoothFogFeatures() ? HD::FogShadowWeight(l) : ((l.flags & 1) ? 1.0f : 0.0f) };
+            float rel = (HD::SmoothFogFeatures() ? HD::FogRelativeHeightWeight(l) : ((l.flags & 2) ? 1.0f : 0.0f)) * dn.m_playerPos.z;
             d = { l.topRate * .01f, l.topHeight + rel, l.bottomRate * .01f, l.bottomHeight + rel };
             e = { std::pow(l.shadow[0], 2.2f) * base, std::pow(l.shadow[1], 2.2f) * base, std::pow(l.shadow[2], 2.2f) * base, l.shadowMul };
         }
@@ -327,6 +329,10 @@ void HD::Fog::RegisterCVars() {
 void HD::Fog::World() {
     if (Visuals::Current() != Visuals::AzerothRemastered || !OptionCVars::Bool(s_enabled, false)) {
         Info("off");
+        return;
+    }
+    if (HD::LumenNative::ComposedFog()) { // hd/lumen composed this frame's fog (hdLvFog): the reference fog is kept only as the fallback
+        Info("Lumen fog composed; reference retained for fallback");
         return;
     }
     const int32_t mode = OptionCVars::Int(s_debug, 0, 4, 0);

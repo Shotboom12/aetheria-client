@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#version 450
+// Reuses the native scene depth; does not render geometry again.
+// VkDepthRange 0..0.94 in this client is a viewport remap, NOT reversed-Z.
+layout(local_size_x=8,local_size_y=8)in;
+layout(binding=0)uniform sampler2D nativeDepth;
+layout(r32f,binding=1)uniform writeonly image2D fsrDepth;
+layout(push_constant)uniform Params {vec4 depthRange;ivec4 extent;}c;
+void main(){ivec2 p=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(p,c.extent.xy)))return;
+ float raw=texelFetch(nativeDepth,p,0).r;
+ float d=clamp((raw-c.depthRange.x)/(c.depthRange.y-c.depthRange.x),0,1);
+ imageStore(fsrDepth,p,vec4(d));
+}

@@ -40,7 +40,7 @@ namespace HD {
     int32_t RealLightParamsId(const LightParamsRec* params);
 
     // True (and *color set) when this band comes from Forever for this record.
-    bool ForeverIntBand(const LightParamsRec* params, int32_t band, int32_t time, CImVector* color);
+    bool ForeverIntBand(const LightParamsRec* params, int32_t band, float time, CImVector* color);
 
     // How much of Forever's colour to use for this band (0 = 3.3.5 colour, 1 = Forever's): hdForeverLight for
     // the world light bands (0 sun, 1 ambient), 1 for the others.
@@ -50,7 +50,7 @@ namespace HD {
     // shader gets them: sky = LightData AmbientColor, horizon = HorizonAmbientColor, ground = GroundAmbientColor,
     // blended between Forever's time keys. A horizon or ground colour Forever leaves black is the sky colour.
     // False when hdForever is 0 or Forever has no setting for this light (sky/horizon/ground untouched).
-    bool ForeverAmbientsAt(const LightRec* light, int32_t slot, int32_t time, float* sky, float* horizon, float* ground);
+    bool ForeverAmbientsAt(const LightRec* light, int32_t slot, float time, float* sky, float* horizon, float* ground);
 
     // One Forever fog layer (LightDataGlobalVolumeFog), as Forever's global fog shader reads it (GlobalFogParams).
     // Only the layers the Forever client draws (flag 8) are in the file. Colours 0..1, values unscaled.
@@ -68,7 +68,13 @@ namespace HD {
         float intensity;          // sun scatter strength (column 14)
         float g;                  // phase: 0 = even, 0.9 = strongly toward the sun (column 15)
         float strength, exponent; // denser with distance: 1 + strength * (distance share)^exponent (columns 25, 26)
+        // HD: internal interpolation metadata only; never serialized or read as client/x86 offsets.
+        float shadowWeight=0.0f, relativeHeightWeight=0.0f;
+        bool featureWeightsValid=false;
     };
+
+    inline float FogShadowWeight(const ForeverFogLayer& l) {return l.featureWeightsValid?l.shadowWeight:((l.flags&1)?1.0f:0.0f);}
+    inline float FogRelativeHeightWeight(const ForeverFogLayer& l) {return l.featureWeightsValid?l.relativeHeightWeight:((l.flags&2)?1.0f:0.0f);}
 
     // Blend two fog layers (t = 0 keeps a, 1 gives b). A missing layer (flags 0) takes the other's colours,
     // so it only fades in by density.
@@ -82,12 +88,12 @@ namespace HD {
 
     // Forever's fog for this light and slot at this time (0-2880 half-minutes), interpolated between
     // Forever's time keys. False when Forever has no fog for this light (TBC, WotLK, Turtle lights).
-    bool ForeverFogAt(const LightRec* light, int32_t slot, int32_t time, ForeverFog* out);
+    bool ForeverFogAt(const LightRec* light, int32_t slot, float time, ForeverFog* out);
 
     // Forever's colour grading for this light and slot at this time (0-2880 half-minutes): the LUTs of the two
     // time keys around it (forever_data\grading\<lut>.blp) and how far between them (0 = lutA, 1 = lutB).
     // False when Forever has no grading for this light. Data: forever_data\hd_forever_grading.txt.
-    bool ForeverGradingAt(const LightRec* light, int32_t slot, int32_t time, int32_t* lutA, int32_t* lutB, float* t);
+    bool ForeverGradingAt(const LightRec* light, int32_t slot, float time, int32_t* lutA, int32_t* lutB, float* t);
 }
 
 #endif

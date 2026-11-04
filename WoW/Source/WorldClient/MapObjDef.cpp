@@ -1,3 +1,6 @@
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrRigid.h"
+#endif
 #include "MapObjDef.h"
 #include "WoW/Source/LiquidSystem/Liquid.h"
 #include "WoW/Source/WorldClient/Map.h"
@@ -87,6 +90,9 @@ CMapObjDef::CMapObjDef() {
 // VERIFY: 3855c196 manual
 // OFFSET: [0x007B4500, 0x007B47C0]
 CMapObjDef::~CMapObjDef() {
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Rigid::Forget(this);
+#endif
 }
 
 // VERIFY: 3113f3c8 manual

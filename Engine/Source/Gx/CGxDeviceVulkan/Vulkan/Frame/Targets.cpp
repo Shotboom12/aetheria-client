@@ -261,7 +261,7 @@ namespace gxvk::vk::frame::detail
     /// recently used entry gives way when the table is full.
     uint32_t FramebufferFor(const Target& t, VkFormat format, VkExtent2D extent)
     {
-        const VkImage image = t.image ? t.image->handle : s.scene.handle;
+        const VkImage image = t.image ? t.image->handle : SceneImage().handle;
         for (uint32_t i = 0; i < s.fbCount; ++i)
             if (s.fbs[i].image == image && s.fbs[i].layer == t.layer) return i;
 
@@ -349,9 +349,9 @@ namespace gxvk::vk::frame::detail
             return false;
         }
         if (!EnsureImageObjects(*h) || s.scene.handle == VK_NULL_HANDLE) return false;
-        image  = &s.scene;
-        format = s.scene.format;
-        extent = s.scene.extent;
+        image  = &SceneImage();
+        format = SceneImage().format;
+        extent = SceneImage().extent;
         return true;
     }
 

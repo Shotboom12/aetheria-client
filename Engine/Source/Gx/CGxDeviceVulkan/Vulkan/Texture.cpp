@@ -77,7 +77,11 @@ namespace gxvk::vk::texture
 
     bool CreateStorage(uint32_t width, uint32_t height, VkFormat format, Image& out)
     {
-        if (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_R16G16B16A16_SFLOAT && format != VK_FORMAT_R32_SFLOAT) return false;
+        // Azeroth Remastered's Lumenveil executor (hd/lumen) also stores RGBA32F, R32_UINT, R8 and RGBA16_SNORM; CreateImage
+        // checks the device's storage-image support for the format itself (R8 and RGBA16_SNORM need the extended formats).
+        if (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_R16G16B16A16_SFLOAT && format != VK_FORMAT_R32_SFLOAT &&
+            format != VK_FORMAT_R32G32B32A32_SFLOAT && format != VK_FORMAT_R32_UINT && format != VK_FORMAT_R8_UNORM && format != VK_FORMAT_R16G16B16A16_SNORM &&
+            format != VK_FORMAT_R16G16_SFLOAT) return false;
         return detail::CreateImage(width, height, 1, false, format, out, VK_IMAGE_USAGE_STORAGE_BIT);
     }
 

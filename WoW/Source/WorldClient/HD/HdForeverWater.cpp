@@ -245,6 +245,10 @@ bool Requested() {
         if (notAr++ < 3) Trace("Requested: renderer is %d, not Azeroth Remastered", static_cast<int>(Visuals::Current()));
         return false;
     }
+    // Owner decision 2026-11-03: the Forever native water adapter is disabled in Azeroth Remastered for now (Cata water is used).
+    // Set to true to bring it back; hdWater 1 is then honoured again.
+    constexpr bool kForeverWaterInAr = false;
+    if (!kForeverWaterInAr) return false;
     if (!enabled) {
         enabled = CVar::LookupRegistered("hdWater");
         if (!enabled) enabled = CVar::Register("hdWater", "Forever PBR water native adapter (0 stock, 1 enabled)", 1, "0", nullptr, CATEGORY_GRAPHICS, false, nullptr, false);

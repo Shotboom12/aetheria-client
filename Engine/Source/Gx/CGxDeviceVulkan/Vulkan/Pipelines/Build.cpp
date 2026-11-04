@@ -336,7 +336,7 @@ namespace
      */
     bool Build(const Key& k, VkPipeline& out)
     {
-        if(k.geometry) {
+        if(k.geometry==1||k.geometry==2) {
             const auto* h=context::Get();
             if(!h || !h->independentBlend || context::Caps().deviceVersion<VK_API_VERSION_1_1) return false;
             VkPhysicalDeviceProperties props{};
@@ -453,8 +453,12 @@ namespace
             geometryBlends[i].blendEnable=VK_FALSE;
             geometryBlends[i].colorWriteMask=k.geometry==2?0xFu:0u;
         }
-        blending.attachmentCount = k.geometry?6u:1u;
-        blending.pAttachments    = k.geometry?geometryBlends:&blend;
+        // Geometry 3 (FSR object motion): a single RGBA16F target written whole, no blending.
+        VkPipelineColorBlendAttachmentState velocityBlend = {};
+        velocityBlend.colorWriteMask = 0xFu;
+        const bool velocityPass = k.geometry == 3;
+        blending.attachmentCount = velocityPass ? 1u : (k.geometry?6u:1u);
+        blending.pAttachments    = velocityPass ? &velocityBlend : (k.geometry?geometryBlends:&blend);
 
         const VkDynamicState dynamics[4] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_BLEND_CONSTANTS };
         VkPipelineDynamicStateCreateInfo dynamic = {};

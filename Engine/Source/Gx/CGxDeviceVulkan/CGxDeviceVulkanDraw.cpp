@@ -1,4 +1,6 @@
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/HdCaptureSession.hpp"
+#include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/Jitter.hpp"
+#include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/HdMotionHistory.hpp"
 // The Vulkan backend's draw: the engine's vertex streams, index buffer, batch, transforms, texture
 // stages and their texture transforms, blend mode, alpha test, depth and culling states, colour
 // mask, fill mode, depth bias and shaders read off the device at Draw time and recorded into the
@@ -243,6 +245,7 @@ void CGxDeviceVulkan::Draw(CGxBatch* batch, int32_t count) {
 
     d.viewport.x += kD3d9CentreShift;
     d.viewport.y += kD3d9CentreShift;
+    gxvk::vk::jitter::Apply(d.viewport, frame::Target() == nullptr); // FSR device tier: sub-pixel world jitter; inert while nobody asks
 
     // The texture update may have ended the pass for an inline upload: open (resume) it for the draw.
     VkCommandBuffer cmd = frame::Pass();
@@ -253,6 +256,7 @@ void CGxDeviceVulkan::Draw(CGxBatch* batch, int32_t count) {
 
     const bool recorded = pipelines::Record(cmd, frame::RenderPass(), frame::PassGeneration(), frame::Serial(), frame::Slot(), d);
     if (recorded) gxvk::vk::hdcapture::Capture(d, frame::Serial(), frame::Target() == nullptr, frame::QueryActive());
+    if (recorded) gxvk::vk::hdmotion::Observe(d, frame::Serial(), frame::Target() == nullptr, frame::QueryActive()); // FSR object motion step 1: inert while disabled
     static bool loggedLiquid = false;
     if (!loggedLiquid && d.fragmentRecord && std::strstr(gxvk::vk::manifest::FirstName(*d.fragmentRecord), "Liquid")) {
         loggedLiquid = true;

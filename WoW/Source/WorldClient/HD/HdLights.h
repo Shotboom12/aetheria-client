@@ -36,6 +36,27 @@ namespace HD {
     // `camera`. Returns how many. The frame's lights are gathered from `scene` the first time it is called in a frame.
     int32_t LightsForSphere(CM2Scene* scene, const C3Vector& camera, const CAaSphere& sphere, float* out);
 
+    // The same for a piece of ground: `ground` holds `groundCount` points of its surface (world). A light is taken
+    // only if it reaches one of them, and the lights are ranked by how much light they give those points, so the
+    // ones that really light this ground win (the sphere only bounds the search: a chunk's sphere also holds what
+    // stands on it and is much bigger than its ground).
+    int32_t LightsForGround(CM2Scene* scene, const C3Vector& camera, const CAaSphere& sphere, const C3Vector* ground, int32_t groundCount, float* out);
+
+
+    // Read-only export of the ALREADY gathered frame cache. Render thread only;
+    // does not GatherFrame, register CVars, allocate, repair or change native light.
+    // owner is an ephemeral CM2Light identity, NOT a persistent GUID/model id.
+    struct CachedLight {
+        uint64_t owner=0;
+        float position[3]{},colourTimesIntensity[3]{};
+        float radius=0,fadeWidth=0;
+        uint8_t lastAnimatedState=0;
+    };
+    struct CachedLightsInfo {uint32_t sceneFrameStamp=0,total=0,visited=0;int32_t nativeMode=0;};
+    using CachedLightVisitor=bool(*)(void*,const CachedLight&);
+    bool ReadCachedLights(const CM2Scene* expectedScene,uint32_t expectedStamp,
+                          CachedLightVisitor,void* user,CachedLightsInfo&);
+
     // A model's light leaves its scene (detached or freed): forget its last animated state.
     void LightsForget(const CM2Light* light);
 }

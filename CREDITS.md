@@ -65,3 +65,7 @@ Aetheria is built on the work of many people. Aetheria collects and integrates o
 Original World of Warcraft assets belong to Blizzard Entertainment. No client files, MPQs or DBCs from the game are distributed here.
 
 If a credit is missing or wrong, tell the Aetheria owner and it will be fixed.
+
+## Azeroth Remastered native port (2026-11-04)
+
+Lamps, Lumenveil lighting, FSR 3.1 and DLSS for Azeroth Remastered mode, plus the English WaystoneHD menu (Addons/WaystoneHD), build on Madominator1's Azeroth Remastered 2026-11-03 source (graphics work, credit stays with him) and on AMD FidelityFX and NVIDIA NGX. The native device glue, object-motion replay, G-buffer replay and the settings integration are Aetheria's.

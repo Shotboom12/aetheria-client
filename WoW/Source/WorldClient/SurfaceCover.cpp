@@ -329,6 +329,7 @@ CVar* s_melt = nullptr;
 CVar* s_depth = nullptr;
 CVar* s_others = nullptr;
 CVar* s_brightness = nullptr;
+CVar* s_glints = nullptr;   // snow glints: fixed grid cells of the snow that flash while the sun is on them (the donor's sparkle)
 CVar* s_breakup = nullptr;
 CVar* s_farLift = nullptr;
 CVar* s_info = nullptr;
@@ -1485,7 +1486,7 @@ void LookConstants(float breakup, bool big, bool patch, bool snow) {
     const float bright = OptionCVars::Float(s_brightness, 0.2f, 1.5f, 0.93f);
     const bool rect = s_haveNear && s_nearAny && OptionCVars::Bool(s_near, true);
     const float pixel[8] = {
-        bright, bright, bright, snow ? 1.0f : 0.0f,
+        bright, bright, bright, snow ? OptionCVars::Float(s_glints, 0.0f, 1.0f, 0.06f) : 0.0f,
         std::min(1.0f, breakup * OptionCVars::Float(s_breakup, 0.0f, 3.0f, 1.0f)), big ? 1.0f : 0.0f, 0.35f, patch ? 1.0f : 0.0f,
     };
     g_theGxDevicePtr->ShaderConstantsSet(GxSh_Pixel, 34, pixel, 2);
@@ -1504,6 +1505,7 @@ void SurfaceCover::RegisterCVars() {
     s_enabled = reg("surfaceCover", "Snow (and sand, ash) lies on the ground as a layer of its own, from SurfaceCover.cdbc", "1", false);
     s_depth = reg("surfaceCoverDepth", "Surface cover: depth multiplier on what SurfaceCover.cdbc says (1 = the table)", "1", true);
     s_others = reg("surfaceCoverOthers", "Surface cover: sand and ash too, not only snow", "1", true);
+    s_glints = reg("surfaceCoverGlints", "Surface cover: strength of the snow glints, the small bright squares that flash on sunlit snow as the view moves (0 off, 0.06 barely there = default, 1 = the donor)", "0.06", false);
     s_brightness = reg("surfaceCoverBrightness", "Surface cover: how bright the cover is (0.93 = the donor's snow)", "0.93", false);
     s_breakup = reg("surfaceCoverBreakup", "Surface cover: ragged edges multiplier on the table's EdgeBreakup", "1", false);
     s_farLift = reg("surfaceCoverDistanceLift", "Surface cover: yards it is lifted far away, against the depth buffer's coarseness there", "0.1", false);

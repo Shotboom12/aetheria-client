@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#version 450
+layout(local_size_x=8,local_size_y=8)in;
+layout(rgba16f,binding=0)uniform readonly image2D objectMotion;
+layout(rg16f,binding=1)uniform writeonly image2D finalMotion;
+void main(){
+ ivec2 p=ivec2(gl_GlobalInvocationID.xy);
+ if(any(greaterThanEqual(p,imageSize(finalMotion)))||any(greaterThanEqual(p,imageSize(objectMotion))))return;
+ vec4 m=imageLoad(objectMotion,p);
+ // Cleared/unmarked/invalid pixels are NEVER stored: the camera result's exact half-float bits survive.
+ if(m.z!=1.0||any(isnan(m.xy))||any(isinf(m.xy)))return;
+ imageStore(finalMotion,p,vec4(m.xy,0,0));
+}

@@ -134,7 +134,7 @@ namespace gxvk::vk::pipelines
         float depthBias        = 0.0f;
         float blendConstant[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-        // 0 ordinary, 1 six-colour depth-only fallback, 2 supplied geometry modules.
+        // 0 ordinary, 1 six-colour depth-only fallback, 2 supplied geometry modules, 3 FSR object-motion velocity replay (one RGBA16F target).
         uint32_t geometry = 0;
         bool geometryInterior = false; // captured from native WMO draw scope
         bool mirror = false; // Translated VS uses xform as post-skinning mirror clip matrix.
@@ -163,6 +163,10 @@ namespace gxvk::vk::pipelines
         const float* pixelExtra = nullptr;      // rows kPixelRows.. of the pixel file, when pixelExtraRows is not 0
         uint32_t     pixelExtraRows = 0;
         float        misc[4]    = {};
+
+        /// geometry 3 (FSR object motion replay): the PREVIOUS frame's vertex register file of this draw (vertexRows rows), bound as a second
+        /// register block at set 2. Required for geometry 3, ignored otherwise.
+        const float* motionPrevRegs = nullptr;
 
         VkViewport viewport = {};
         VkRect2D   scissor  = {};

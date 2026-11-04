@@ -1,5 +1,8 @@
 // The Vulkan instance: the loader, the layers, the extensions.
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/Context/Internal.hpp"
+#ifdef AETHERIA_NATIVE_DLSS
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdNativeDlss.h"
+#endif
 
 namespace gxvk::vk::context::detail
 {
@@ -80,6 +83,11 @@ namespace gxvk::vk::context::detail
                                    : "VK_LAYER_KHRONOS_validation is not installed");
             }
         }
+
+#ifdef AETHERIA_NATIVE_DLSS
+        // NVIDIA NGX (DLSS) names the instance extensions it needs; only ones the loader offers are added.
+        HD::NativeDlss::AddInstanceExtensions(available, extensions);
+#endif
 
         VkApplicationInfo app = {};
         app.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;

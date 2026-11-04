@@ -18,6 +18,7 @@
 #include "Engine/Source/Gx/CGxTexFlags.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Model2/M2Cache.h"
+#include "Engine/Source/Model2/HdExtraLamps.h" // HD: hdExtraLamps
 #include "Engine/Source/Model2/M2Model.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Services/AsyncFile.h"
@@ -1923,6 +1924,8 @@ int32_t CM2Shared::FinishLoading() {
         return 1;
     }
 
+    if (HD::ExtraLamps::Patch(this->m_data, this->m_fileSize, this->m_fileName)) HD::ExtraLamps::MarkPatched(this); // HD: point light for lamps that have none
+
     if (!M2Init(reinterpret_cast<uint8_t*>(this->m_data), this->m_fileSize, *this->m_data)) {
         DebugLog("Corrupt model data: %s", this->m_fileName);
         return 0;
@@ -2055,6 +2058,7 @@ CM2Shared::~CM2Shared() {
 #if defined(WOWDECOMP_ARCH_64)
     OsFreeNear(m_esteriaBoneCombos);
 #endif
+    HD::ExtraLamps::ForgetShared(this); // HD
     this->CancelAllDeferredSequences();
 
     int32_t pending = 0;

@@ -5,6 +5,8 @@
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/HdCaptureSession.hpp"
 #include "WoW/Source/WorldClient/HD/HdNativeWaterCapture.h"
 #include "WoW/Source/WorldClient/HD/HdNativeFog.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdLumenNative.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdNativeFsr.h"
 #include "WoW/Source/WorldClient/HD/HdNativeAO.h"
 #include "WoW/Source/WorldClient/HD/HdNativeBloom.h"
 #include "WoW/Source/WorldClient/HD/HdNativeGrade.h"
@@ -312,6 +314,8 @@ void CGxDeviceVulkan::IDestroyVulkan() {
     HD::NativeMirror::Shutdown();
     HD::NativeWaterCapture::Shutdown(); // Captured scene/depth/blur before allocator shutdown.
     HD::NativeAO::Shutdown(); // Retire depth pyramid/AO/history before allocator teardown.
+    HD::NativeFsr::Shutdown(); // FSR context, upscaler and helper images before the allocator teardown.
+    HD::LumenNative::Shutdown(); // Azeroth Remastered Lumen stages + lamp frame; before the fog images it reads and the allocator teardown.
     HD::NativeFog::Shutdown(); // Before image allocator teardown.
     HD::NativeBloom::Shutdown(); // Retire HDR intermediates before allocator shutdown.
     HD::NativeGrade::Shutdown(); // Frame is idle; before allocator/context teardown.

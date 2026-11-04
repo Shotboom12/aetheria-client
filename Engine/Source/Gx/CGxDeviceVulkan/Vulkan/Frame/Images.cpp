@@ -15,6 +15,13 @@ namespace gxvk::vk::frame::detail
         if (!s.dapi || !s.device) return;
         const loader::Device& d = *s.dapi;
         present::Drop();
+        s.worldActive = false;
+        if (s.upscaleOut.handle != VK_NULL_HANDLE) texture::DestroyIdle(s.upscaleOut);
+        if (s.worldScene.handle != VK_NULL_HANDLE)
+        {
+            DropFramebuffersOf(s.worldScene.handle, false);
+            texture::DestroyIdle(s.worldScene);
+        }
         if (s.scene.handle != VK_NULL_HANDLE)
         {
             DropFramebuffersOf(s.scene.handle, false);

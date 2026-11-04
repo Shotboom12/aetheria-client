@@ -20,6 +20,21 @@ if (WOWDECOMP_RETAIL_ASSETS)
     include(cmake/RetailAssets.cmake)
 endif ()
 
+# Azeroth Remastered lamps (hd/lamp hooks in Model2, ShaderEffect, HdLights, HdTerrain, MapObj). Every hook is inert
+# unless Visuals::AzerothRemastered is selected and hdModelLampRepair/hdLampMaterialDelta are on.
+add_compile_definitions(AETHERIA_HD_LAMP=1)
+option(WOWDECOMP_LUMEN "Compile hd/lumen: Azeroth Remastered's Lumenveil logic (AR mode only; standalone Lumenveil is separate)" ON)
+if (WOWDECOMP_LUMEN)
+    add_compile_definitions(WOWDECOMP_LUMEN=1)
+endif ()
+option(WOWDECOMP_FSR "Compile hd/fsr: needs the FSR device tier (jitter, velocity, swapchain replacement), not available yet" OFF)
+option(AETHERIA_NATIVE_FSR "Native camera-only FSR 3.1 for Azeroth Remastered (hd/HdNativeFsr, needs ThirdParty/FidelityFX headers; DLLs loaded from <exe>/FSR)" OFF)
+if (AETHERIA_NATIVE_FSR)
+    add_compile_definitions(AETHERIA_NATIVE_FSR=1)
+endif ()
+option(WOWDECOMP_DLSS "Compile hd/dlss: needs the FSR device tier, not available yet" OFF)
+option(AETHERIA_NATIVE_DLSS "Native NVIDIA DLSS Super Resolution for Azeroth Remastered (hd/HdNativeDlss; needs AETHERIA_NATIVE_FSR and ThirdParty/DLSS, which stays local: never push it; nvngx_dlss.dll is loaded from <exe>/DLSS)" OFF)
+
 if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
     message(FATAL_ERROR "wowdecomp targets Windows only.")
 endif ()

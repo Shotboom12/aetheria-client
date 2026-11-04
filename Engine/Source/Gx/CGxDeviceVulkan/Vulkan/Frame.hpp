@@ -38,8 +38,44 @@ namespace gxvk::vk::frame
      */
     void SetTarget(const texture::Image* image, uint32_t layer);
 
-    /// The scene image (B8G8R8A8, the swapchain's size), or null before the swapchain exists.
+    /// The scene image (B8G8R8A8, the swapchain's size), or null before the swapchain exists. While a render-scale
+    /// world is active (BeginWorldScale) it is the smaller world image: every consumer sees one consistent extent.
     const texture::Image* Scene();
+
+    /**
+     * Azeroth Remastered render scale: from here to EndWorldScale the world draws into a scene image of `scale` times
+     * the swapchain's size, so the UI and world text stay at native resolution. EndWorldScale stretches it (bilinear)
+     * onto the full scene. False (and nothing changes) for scale outside 0.25..0.999, a texture target, an active
+     * query, or no scene yet. A frame that ends with the scale still active ends it first.
+     */
+    bool BeginWorldScale(float scale);
+    /// The extent BeginWorldScale(scale) would give the world image (the swapchain size times scale, rounded, at least 1x1).
+    VkExtent2D WorldScaleExtent(float scale);
+
+    /**
+     * The upscaler seam. With a callback set, EndWorldScale hands it the finished render-size world (colour image, sampled depth,
+     * this frame's jitter) and a display-size RGBA8 storage image in GENERAL to fill; the frame then writes that image to the scene.
+     * The callback records compute only on cmd (outside any pass) and must not submit or wait. If it returns false, or none is
+     * set, the world is stretched bilinearly as before. The frame restores every layout. Set and clear on the render thread.
+     */
+    struct UpscaleInputs
+    {
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        uint64_t serial = 0, completed = 0;
+        uint32_t slot = 0;
+        VkImage colorImage = VK_NULL_HANDLE; VkImageView colorView = VK_NULL_HANDLE;
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED; VkImageLayout colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;   ///< B8G8R8A8, SHADER_READ_ONLY
+        VkExtent2D renderExtent{};
+        VkImageView depthView = VK_NULL_HANDLE; VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+        VkImageLayout depthLayout = VK_IMAGE_LAYOUT_UNDEFINED;                                              ///< DEPTH_STENCIL_READ_ONLY
+        VkImage outputImage = VK_NULL_HANDLE; VkImageView outputView = VK_NULL_HANDLE;
+        VkFormat outputFormat = VK_FORMAT_UNDEFINED; VkExtent2D displayExtent{};                             ///< R8G8B8A8, GENERAL
+        float jitter[2] = { 0, 0 };                                                                          ///< this frame's world jitter, pixels
+    };
+    using UpscaleRecord = bool (*)(const UpscaleInputs&, void*);
+    void SetUpscaler(UpscaleRecord record, void* user);
+    void EndWorldScale();
+    bool WorldScaled();
 
     /// The render-target image the next draws land on, or null for the scene.
     const texture::Image* Target();

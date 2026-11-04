@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Waystone HD
+## Notes: Single menu for the HD graphics settings (/hd)
+## Author: Waystone HD (English edition for Aetheria)
+## SavedVariables: WaystoneHDMine, WaystoneHDHeures
+WaystoneHD.lua
+WaystoneHD_Bouton.lua
+WaystoneHD_Heures.lua

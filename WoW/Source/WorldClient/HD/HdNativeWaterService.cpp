@@ -30,7 +30,7 @@ void BeginWorld(){
     g_gxCataSky.m_tex=nullptr; // Each world scope must produce its own sky; never borrow a previous frame.
     if(!wanted){
         wanted=CVar::LookupRegistered("hdCataWater");
-        if(!wanted)wanted=CVar::Register("hdCataWater","Cataclysm water material with native capture, reflection and ripple services",1,"0",nullptr,CATEGORY_GRAPHICS,false,nullptr,false);
+        if(!wanted)wanted=CVar::Register("hdCataWater","Cataclysm water material with native capture, reflection and ripple services",1,"1",nullptr,CATEGORY_GRAPHICS,false,nullptr,false);
     }
     const bool remastered = Visuals::Current() == Visuals::AzerothRemastered;
     const bool foreverRequested = remastered && HD::ForeverWater::Requested();

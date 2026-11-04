@@ -1,6 +1,8 @@
 #include "WoW/Source/WorldClient/HD/HdForever.h"
 #include "WoW/Source/Ui/Visuals.h"
 #include "WoW/Source/WorldClient/HD/HdTime.h"
+#include "WoW/Source/WorldClient/HD/HdDayNightMath.h"
+#include "Engine/Source/Model2/HdExtraLamps.h"
 #include "WoW/Source/WorldClient/DayNight__DNInfo.h"
 #include <cmath>
 #include <new>
@@ -277,7 +279,7 @@ const LightParamsRec* DayNight::GetLightParams(const LightRec* light, int32_t pa
 
 // VERIFY: 731bfb93 auto
 // OFFSET: 0x007EBF90
-float DayNight::CalcIndividualColorFromDBRec(int32_t time, const LightParamsRec* params, int32_t band) {
+float DayNight::CalcIndividualColorFromDBRec(float time, const LightParamsRec* params, int32_t band) {
     LightFloatBandRec rec;
     g_lightFloatBandDB.GetRecord(band + 6 * HD::RealLightParamsId(params) - 5, &rec);
     return DayNight::InterpFloatBand(&rec, time, band);
@@ -285,7 +287,7 @@ float DayNight::CalcIndividualColorFromDBRec(int32_t time, const LightParamsRec*
 
 // VERIFY: bab367f3 auto
 // OFFSET: 0x007EBFF0
-void DayNight::LoadLightingBands(int32_t time, CurrentLight* light, const LightParamsRec* params) {
+void DayNight::LoadLightingBands(float time, CurrentLight* light, const LightParamsRec* params) {
     light->m_diffuse = DayNight::LoadLightIntBand(time, params, 0);
     light->m_ambient = DayNight::LoadLightIntBand(time, params, 1);
     light->m_skyColors[0] = DayNight::LoadLightIntBand(time, params, 2);
@@ -447,7 +449,7 @@ float DayNight::CalcFogRate(float fogStart, float fogEnd) {
 
 // VERIFY: 71473e14 auto
 // OFFSET: 0x007ECD80
-void DayNight::CalcColors(int32_t time, CurrentLight* light, const LightParamsRec* params) {
+void DayNight::CalcColors(float time, CurrentLight* light, const LightParamsRec* params) {
     DayNight::LoadLightingBands(time, light, params);
 
     if (light->m_fogEnd < 10.0f) {
@@ -529,8 +531,8 @@ void DayNight::SyncSkyAnimWithTime(DNOverrideSky* sky, int32_t minutes) {
     }
 
     if (!sky->m_animLengthMs) {
-        M2BoneSequenceInfo info;
-        sky->m_model->GetBoneSequenceInfo(0xFFFFFFFF, info);
+        M2BoneSequenceInfo info{};
+        if(!sky->m_model->GetBoneSequenceInfo(0xFFFFFFFF, info))return;
         sky->m_animLengthMs = info.m_endTime - info.m_startTime;
     }
 
@@ -540,6 +542,12 @@ void DayNight::SyncSkyAnimWithTime(DNOverrideSky* sky, int32_t minutes) {
         return;
     }
 
+    // HD: phase-lock already loaded, time-driven sky models to the same continuous visual clock.
+    // The ready bit avoids SetBoneSequenceTime's deferred-call allocation path. No sequence is recreated.
+    if(HD::DayNightSmoothingEnabled()&&(sky->m_flags&1)&&(sky->m_model->m_fFlags&1)){
+        sky->m_model->SetBoneSequenceTime(0xFFFFFFFF,HD::DayNightMath::SkyTime(length,DayNight::g_dnInfo.m_dayProgression));
+        sky->m_lastTimeOfDay=uint32_t(minutes);return;
+    }
     if (abs(minutes - static_cast<int32_t>(sky->m_lastTimeOfDay)) >= 2 && (sky->m_flags & 1)) {
         float speed = 0.000000011574074f * length;
         uint32_t time = static_cast<uint32_t>(length * (minutes * 0.00069444446f));
@@ -1038,14 +1046,14 @@ DayNight::CurrentLight::CurrentLight() {
 // OFFSET: 0x007EE510
 void DayNight::BlendAreaLightColors(CurrentLight* dst, const LightRec* light, int32_t underwater) {
     float progression = DayNight::g_dnInfo.m_dayProgression * 2880.0f;
-    int32_t time = CMath::fint_(progression - 0.5f);
+    float time = HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f));
     const LightParamsRec* params = DayNight::GetLightParams(light, underwater != 0);
     DayNight::CalcColors(time, dst, params);
 
     if (DayNight::g_dnInfo.m_stormBlend > 0.0f) {
         CurrentLight storm;
         progression = DayNight::g_dnInfo.m_dayProgression * 2880.0f;
-        time = CMath::fint_(progression - 0.5f);
+        time = HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f));
         params = DayNight::GetLightParams(light, (underwater != 0) + 2);
         DayNight::CalcColors(time, &storm, params);
         DayNight::BlendColors(dst, &storm, DayNight::g_dnInfo.m_stormBlend);
@@ -1208,15 +1216,15 @@ void DayNight::SetPlanets() {
     float cosPhi = CMath::cos_(phi);
     float x = cosPhi * sinTheta;
     float y = sinTheta * sinPhi;
-    if (HD::SunFollowsLight() && info.m_dayProgression >= 0.2013889f && info.m_dayProgression <= 0.9236111f) {
-        // HD: hdSunPath 1, by day (4:50 to 22:10, the client's own sun/moon switch) the sun sits where the
-        // world light comes from (SetDirection ran just before); at night it stays under the horizon
+    if (HD::SunFollowsLight()) {
+        // HD: hdSunPath 1: the sun sits where the world light comes from (SetDirection ran just before). With the
+        // smoothed clock it eases between the sun and moon positions over the handover window instead of switching.
         const auto& direction = info.m_light1.m_dir;
         const float lengthSquared = direction.x * direction.x + direction.y * direction.y + direction.z * direction.z;
         if (std::isfinite(lengthSquared) && lengthSquared > 1e-12f) {
-            x = -direction.x;
-            y = -direction.y;
-            cosTheta = -direction.z;
+            const float w = HD::DayNightSmoothingEnabled() ? HD::DayNightBlendWeight() : ((info.m_dayProgression >= 0.2013889f && info.m_dayProgression <= 0.9236111f) ? 1.0f : 0.0f);
+            const auto dir = HD::DayNightMath::Blend({x, y, cosTheta}, {-direction.x, -direction.y, -direction.z}, w);
+            x = float(dir.x); y = float(dir.y); cosTheta = float(dir.z);
         }
     }
     float scale = 12.0f / sqrtf(x * x + cosTheta * cosTheta + y * y);
@@ -1350,11 +1358,15 @@ void DayNight::DNClouds::SetupBumpMap(C3Vector* shadeColor, C3Vector* sunColor, 
     DNInfo& info = DayNight::g_dnInfo;
     C3Vector light;
 
-    if (info.m_dayProgression < 0.2013889f || info.m_dayProgression > 0.9236111f) {
-        light = DayNight::g_planets.m_moon.m_position;
-    } else {
-        light = DayNight::g_planets.m_sun.m_position;
-    }
+    if(HD::DayNightSmoothingEnabled()){
+        const float w=HD::DayNightBlendWeight();
+        if(w<=0)light=DayNight::g_planets.m_moon.m_position;
+        else if(w>=1)light=DayNight::g_planets.m_sun.m_position;
+        else{const auto&m=DayNight::g_planets.m_moon.m_position;const auto&s=DayNight::g_planets.m_sun.m_position;const auto&c=info.m_cameraPos;
+            const auto v=HD::DayNightMath::Blend({m.x-c.x,m.y-c.y,m.z-c.z},{s.x-c.x,s.y-c.y,s.z-c.z},w);
+            light=C3Vector(c.x+float(v.x)*12.f,c.y+float(v.y)*12.f,c.z+float(v.z)*12.f);}
+    }else if(info.m_dayProgression<.2013889f||info.m_dayProgression>.9236111f)light=DayNight::g_planets.m_moon.m_position;
+    else light=DayNight::g_planets.m_sun.m_position;
 
     C3Vector dir(light.x - info.m_cameraPos.x, light.y - info.m_cameraPos.y, light.z - info.m_cameraPos.z);
     C3Vector origin(0.0f, 0.0f, 0.0f);
@@ -2537,6 +2549,7 @@ void DayNight::DNSky::GenSphere(float sphRadius) {
 // OFFSET: 0x007F2790
 void DayNight::LoadMap(int32_t mapId) {
     DayNight::s_mapId = mapId;
+    HD::ResetDayNight(); // HD: no visual-clock history crosses a world load
     DayNight::LightLoad(DayNight::g_areaLights, mapId);
 
     DNInfo& info = DayNight::g_dnInfo;
@@ -2651,19 +2664,19 @@ void DayNight::SetColors() {
             if (liquid) {
                 const LightParamsRec* params = g_lightParamsDB.GetRecord(liquid->m_lightID);
                 float progression = info.m_dayProgression * 2880.0f;
-                DayNight::CalcColors(CMath::fint_(progression - 0.5f), &info.m_bands, params);
+                DayNight::CalcColors(HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f)), &info.m_bands, params);
             }
         } else {
             CurrentLight light;
             float progression = info.m_dayProgression * 2880.0f;
-            int32_t time = CMath::fint_(progression - 0.5f);
+            float time = HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f));
             const LightParamsRec* params = DayNight::GetLightParams(DayNight::g_areaLights.m_data[0], liquidStatus != 0);
             DayNight::CalcColors(time, &light, params);
 
             if (info.m_stormBlend > 0.0f) {
                 CurrentLight storm;
                 progression = info.m_dayProgression * 2880.0f;
-                time = CMath::fint_(progression - 0.5f);
+                time = HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f));
                 params = DayNight::GetLightParams(DayNight::g_areaLights.m_data[0], (liquidStatus != 0) + 2);
                 DayNight::CalcColors(time, &storm, params);
                 DayNight::BlendColors(&light, &storm, info.m_stormBlend);
@@ -2677,7 +2690,7 @@ void DayNight::SetColors() {
                 info.m_bands = light;
             } else {
                 progression = info.m_dayProgression * 2880.0f;
-                DayNight::CalcColors(CMath::fint_(progression - 0.5f), &info.m_bands, override);
+                DayNight::CalcColors(HD::DayNightBandTime(progression, CMath::fint_(progression - 0.5f)), &info.m_bands, override);
                 info.m_bands.m_glow = light.m_glow;
                 info.m_bands.m_waterShallowAlpha = light.m_waterShallowAlpha;
                 info.m_bands.m_cloudTypeId = light.m_cloudTypeId;
@@ -2825,6 +2838,7 @@ void DayNight::SetColors() {
     }
 
     info.m_curve0 = DayNight::InterpTable(s_curveTable0, 4, info.m_dayProgression);
+    HD::ExtraLamps::SetNight(info.m_curve0); // HD: added lamps lit at night only
     info.m_curve1 = DayNight::InterpTable(s_curveTable1, 2, info.m_dayProgression);
 }
 
@@ -2854,7 +2868,7 @@ void DayNight::UpdateLighting() {
         storm = 1.0f;
     }
 
-    info.m_stormBlend = storm;
+    info.m_stormBlend = storm; // HD: native weather, no added temporal filter
     DayNight::SetColors();
     DayNight::SetDirection();
     DayNight::SetPlanets();

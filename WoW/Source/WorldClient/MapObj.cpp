@@ -1,5 +1,9 @@
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/HdGeometryOwner.hpp"
 #include "WoW/Source/WorldClient/HD/HdMapObj.h"
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrRigid.h"
+#endif
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
 #include "MapObj.h"
 #include <cstdlib>
 #include <malloc.h>
@@ -862,6 +866,10 @@ void CMapObj::TransformPortal(SMOPortal* portal, SPortalExt* portalExt) {
 // VERIFY: b0d6c3f6 auto
 // OFFSET: 0x007A9160
 void CWorldScene::SetupLighting(CM2Lighting* lighting, C3Vector* view) {
+#ifdef AETHERIA_HD_LAMP
+    HD::Lamp::Native::Repair(lighting);
+    HD::Lamp::Native::SnapshotDraw(HD::Lamp::Native::SlotMask(lighting,true));
+#endif
     if (CShaderEffect::s_enableShaders) {
         CWorldScene::s_fogPermute = lighting->m_lightCount;
 
@@ -1141,6 +1149,10 @@ void CMapObj::UnifiedRender(CMapObjGroup* group, uint32_t index) {
 // VERIFY: 9c6db61b manual
 // OFFSET: 0x007ABF50
 void CMapObj::RenderGroup(int32_t groupIndex, C44Matrix& matrix, TSExplicitList<CWFrustum, offsetof(CWFrustum, m_link)>* frustumList) {
+#ifdef WOWDECOMP_FSR
+    // The WMO resource is shared. The instance is the CURRENT DEFINITION, never `this` alone.
+    HD::Fsr::Rigid::Scope fsrRigid(CWorldScene::s_curMapObjDef,this,CWorldScene::s_curMapObjDef&&CWorldScene::s_curMapObjDef->m_owner==this,true);
+#endif
     CMapObjGroup* group = this->GetGroup(groupIndex, 0);
     DebugLog("%s %s", this->m_wmoName, group->m_groupName);
 
@@ -1714,6 +1726,10 @@ void CMapObj::PrepareUpdate() {
 // VERIFY: d0b199c6 manual
 // OFFSET: 0x007AD1F0
 void CMapObj::RenderInterior(C44Matrix& mat, C44Matrix& invMat, C3Vector& worldPos, C3Vector& camTarget, TSGrowableArray<uint32_t>* groups) {
+#ifdef WOWDECOMP_FSR
+    // The WMO resource is shared. The instance is the CURRENT DEFINITION, never `this` alone.
+    HD::Fsr::Rigid::Scope fsrRigid(CWorldScene::s_curMapObjDef,this,CWorldScene::s_curMapObjDef&&CWorldScene::s_curMapObjDef->m_owner==this,true);
+#endif
     this->SetupMapObjDefCull(mat, invMat, worldPos, camTarget);
     s_interiorPass = 1;
     CWorldScene::s_unk_CD8620 = 0;
@@ -1773,6 +1789,10 @@ void CMapObj::RenderInterior(C44Matrix& mat, C44Matrix& invMat, C3Vector& worldP
 // VERIFY: 8c94ba81 auto
 // OFFSET: 0x007AD350
 void CMapObj::RenderThruPortalsExterior(C44Matrix& mat, C44Matrix& invMat, C3Vector& worldPos, C3Vector& camTarget, CRect& ndcRect, int32_t groupNum) {
+#ifdef WOWDECOMP_FSR
+    // The WMO resource is shared. The instance is the CURRENT DEFINITION, never `this` alone.
+    HD::Fsr::Rigid::Scope fsrRigid(CWorldScene::s_curMapObjDef,this,CWorldScene::s_curMapObjDef&&CWorldScene::s_curMapObjDef->m_owner==this,true);
+#endif
     this->SetupMapObjDefCull(mat, invMat, worldPos, camTarget);
     s_interiorPass = 0;
 

@@ -76,7 +76,9 @@ namespace gxvk::vk::pipelines::detail
     constexpr uint32_t kMaxLayouts = 32;
 
     /// Set-0 descriptor sets one frame may allocate, and the combined image samplers behind them.
-    constexpr uint32_t kSetsPerSlot        = 4096;
+    // Aetheria 2026-11-03: 16384 (was 4096). In Azeroth Remastered a dense view (grass, trees, buildings, terrain cover) draws more than 4096
+    // distinct texture/sampler tuples in one frame; past the cap the remaining draws were skipped and the world vanished except the terrain and water.
+    constexpr uint32_t kSetsPerSlot        = 16384;
     constexpr uint32_t kDescriptorsPerSlot = 4 * kSetsPerSlot;
 
     /// The per-slot cache over those sets: twice the sets, a power of two, for short probes.

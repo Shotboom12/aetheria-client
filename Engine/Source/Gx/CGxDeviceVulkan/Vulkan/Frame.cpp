@@ -191,6 +191,7 @@ namespace gxvk::vk::frame::detail
     void FinishFrame(bool present)
     {
         if (!s.open) return;
+        if (present && s.worldActive) gxvk::vk::frame::EndWorldScale(); // a world left scaled is stretched onto the scene before it is shown
         const context::Handles* h    = context::Get();
         const loader::Device&   d    = *s.dapi;
         FrameSlot&              slot = s.slots[s.fi];
@@ -284,7 +285,44 @@ namespace gxvk::vk::frame
         s.clearDepthPending  = false;
     }
 
-    const texture::Image* Scene() { return s.scene.handle != VK_NULL_HANDLE ? &s.scene : nullptr; }
+    const texture::Image* Scene() { const texture::Image& i = detail::SceneImage(); return i.handle != VK_NULL_HANDLE ? &i : nullptr; }
+
+    bool WorldScaled() { return s.worldActive; }
+
+    VkExtent2D WorldScaleExtent(float scale)
+    {
+        const VkExtent2D full = s.scene.handle != VK_NULL_HANDLE ? s.scene.extent : s.extent;
+        const uint32_t w = static_cast<uint32_t>(full.width * scale + 0.5f), h = static_cast<uint32_t>(full.height * scale + 0.5f);
+        return VkExtent2D{ w ? w : 1u, h ? h : 1u };
+    }
+
+    bool BeginWorldScale(float scale)
+    {
+        if (s.worldActive) return true;
+        if (!(scale >= 0.25f && scale < 0.999f) || s.target.image || s.queryActive || !s.dapi || s.scene.handle == VK_NULL_HANDLE) return false;
+        const uint32_t w = static_cast<uint32_t>(s.scene.extent.width * scale + 0.5f) ? static_cast<uint32_t>(s.scene.extent.width * scale + 0.5f) : 1u;
+        const uint32_t h = static_cast<uint32_t>(s.scene.extent.height * scale + 0.5f) ? static_cast<uint32_t>(s.scene.extent.height * scale + 0.5f) : 1u;
+        if (s.worldScene.handle != VK_NULL_HANDLE && (s.worldScene.extent.width != w || s.worldScene.extent.height != h)) RetireImage(s.worldScene, s.serial);
+        if (s.worldScene.handle == VK_NULL_HANDLE && !texture::CreateTarget(w, h, 1, false, detail::kSceneFormat, s.worldScene)) return false;
+        // A clear asked for the full scene before its pass opened is applied to it first, then its pass ends.
+        if (s.open && (s.clearColourPending || s.clearDepthPending)) BeginPass();
+        if (s.open) EndPass();
+        s.worldActive = true;
+        return true;
+    }
+
+    void EndWorldScale()
+    {
+        if (!s.worldActive) return;
+        if (s.open && (s.clearColourPending || s.clearDepthPending)) BeginPass();
+        if (s.open) EndPass();
+        if (s.open && detail::RunUpscaler()) { s.worldActive = false; s.sceneTouched = true; return; }
+        s.worldActive = false;
+        if (!s.open || s.worldScene.handle == VK_NULL_HANDLE || s.scene.handle == VK_NULL_HANDLE) return;
+        const VkRect2D src{ VkOffset2D{ 0, 0 }, s.worldScene.extent };
+        const VkRect2D dst{ VkOffset2D{ 0, 0 }, s.scene.extent };
+        if (CopyFromImage(s.worldScene, s.scene, 0, 0, src, dst, true)) s.sceneTouched = true;
+    }
 
     const texture::Image* Target() { return s.target.image; }
 
@@ -391,7 +429,7 @@ namespace gxvk::vk::frame
     VkExtent2D Extent()
     {
         if (s.target.image) return s.target.image->extent;
-        return s.scene.handle != VK_NULL_HANDLE ? s.scene.extent : s.extent;
+        return detail::SceneImage().handle != VK_NULL_HANDLE ? detail::SceneImage().extent : s.extent;
     }
 
     uint32_t Slot() { return s.fi; }

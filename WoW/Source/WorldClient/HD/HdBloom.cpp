@@ -3,6 +3,7 @@
 // half-size copy of the frame is CopyColor, the depth is CopyDepth, and the composite writes the shared frame
 // (HdFrame.h), which grading then reads and the world frame draws back. Pass order, sizes, formulas and cvars are the donor's.
 #include "WoW/Source/WorldClient/HD/HdBloom.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/HdLumenNative.h"
 
 #include <algorithm>
 #include <cmath>
@@ -234,7 +235,7 @@ void HD::Bloom::RegisterCVars() {
 void HD::Bloom::World() {
     const HD::Camera& camera = HD::CurrentCamera();
     const bool bloom = OptionCVars::Bool(s_bloom, false);
-    bool rays = OptionCVars::Bool(s_rays, false);
+    bool rays = OptionCVars::Bool(s_rays, false) && !HD::LumenNative::ComposedShafts(); // hd/lumen composed this frame's shafts: no second sun rays
     if (Visuals::Current() != Visuals::AzerothRemastered || (!bloom && !rays)) {
         Info("off");
         return;

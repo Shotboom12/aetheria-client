@@ -10,7 +10,12 @@ enum class Stage:uint32_t {Render,PrepareMap,WmoPrepare,Terrain,WmoDraw,Horizon,
  // Inside sortCull (CWorldScene::CullSortTable): its parts, summed over the 64 distance buckets.
  CullVolumes,CullChunks,CullGroups,CullLiquid,CullEntitys,CullDoodads,CullOcclusion,CullHorizon,
  // Inside cullChunks: the chunk's doodads (CullDoodadsExterior) and its render prep (terrain batch, grass creation).
- CullChunkDoodads,CullChunkPrep,Count};
+ CullChunkDoodads,CullChunkPrep,
+ // Main-thread scheduler pass (Engine/Source/Event/EvtPerf.h, same order as EvtPerfPhase): sleep, update, timers, input,
+ // poll handlers, queued events, idle handlers, paint, and the present inside the paint.
+ LoopWait,LoopUpdate,LoopTimer,LoopInput,LoopPoll,LoopQueue,LoopIdle,LoopPaint,Present,
+ // Inside them: CGWorldFrame::Update and CGGameUI::Idle (idle), the Lua GC step in CGGameUI::Idle, PollNet (poll).
+ IdleWorld,IdleUi,LuaGc,PollNet,Count};
 enum class Counter:uint32_t {WmoDefs,WmoGroups,RootWaits,GroupWaits,AsyncReads,HorizonAll,HorizonCandidates,HorizonFallbacks,HorizonMismatch,GrassChunks,GrassDraws,GrassFills,
  // Grass batches by models: one model (the Cata instancing can take them) or several sharing a texture (it cannot).
  GrassSingleModel,GrassMixedModels,GrassInsts,

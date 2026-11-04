@@ -7,16 +7,16 @@ namespace gxvk::vk::frame
         using namespace detail;
         if (!record || gxvk::vk::frame::Target() || QueryActive()) return false;
         VkCommandBuffer cmd=Outside();
-        if (!cmd || !s.open || !s.sceneTouched || !s.scene.handle) return false;
+        if (!cmd || !s.open || !s.sceneTouched || !SceneImage().handle) return false;
         DepthBuffer* depth=nullptr;
         for (uint32_t i=0;i<s.fbCount;++i) {
             const auto& fb=s.fbs[i];
-            if (fb.image==s.scene.handle && fb.layer==0 && fb.depth<s.depthCount) {
+            if (fb.image==SceneImage().handle && fb.layer==0 && fb.depth<s.depthCount) {
                 depth=&s.depths[fb.depth];break;
             }
         }
         if (!depth || !depth->initialised || !depth->sampledView || depth->lastUsed!=s.serial
-            || depth->extent.width!=s.scene.extent.width || depth->extent.height!=s.scene.extent.height) return false;
+            || depth->extent.width!=SceneImage().extent.width || depth->extent.height!=SceneImage().extent.height) return false;
         VkImageMemoryBarrier barrier{};
         barrier.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.srcAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;

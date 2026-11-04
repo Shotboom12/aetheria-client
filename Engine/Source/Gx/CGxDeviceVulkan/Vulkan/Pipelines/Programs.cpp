@@ -3,6 +3,8 @@
 #include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/Pipelines/Internal.hpp"
 
 #include "Engine/Source/Gx/CGxDeviceVulkan/Shaders/Spirv.inc"
+#include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/MotionVariants.hpp"
+#include "Engine/Source/Gx/CGxDeviceVulkan/Vulkan/MotionVelocityFrag.spv.h"
 #include <cstdio>
 #include <cstring>
 
@@ -36,6 +38,25 @@ namespace
 
 namespace gxvk::vk::pipelines::detail
 {
+    namespace { VkShaderModule s_velocityFrag = VK_NULL_HANDLE; }
+
+    // FSR object motion (geometry 3): the built-in velocity fragment module, made on first use.
+    VkShaderModule VelocityFragModule()
+    {
+        if (s_velocityFrag == VK_NULL_HANDLE && !CreateModule(motionvariants::VelocityFragSpv, sizeof motionvariants::VelocityFragSpv, s_velocityFrag, "velocity.frag"))
+            s_velocityFrag = VK_NULL_HANDLE;
+        return s_velocityFrag;
+    }
+
+    // ... and our velocity variant of a skinned vertex record (tools/velocity_variants.py), by the record's md5.
+    VkShaderModule OwnVelocityModule(uint16_t index)
+    {
+        const auto* record = manifest::At(index);
+        if (!record) return VK_NULL_HANDLE;
+        const char* path = motionvariants::Path(record->md5, motionvariants::Kind::OwnVelocity);
+        return path ? shaders::Get(path) : VK_NULL_HANDLE;
+    }
+
     bool CreatePrograms()
     {
         return CreateModule(kFfVert, sizeof kFfVert, s.vert[static_cast<uint32_t>(VertexProgram::FixedFunction)], "Ff.vert")
@@ -50,6 +71,8 @@ namespace gxvk::vk::pipelines::detail
 
     void DestroyPrograms()
     {
+        if (s_velocityFrag != VK_NULL_HANDLE) s.dapi->DestroyShaderModule(s.device, s_velocityFrag, nullptr);
+        s_velocityFrag = VK_NULL_HANDLE;
         for (VkShaderModule& m : s.vert)
         {
             if (m != VK_NULL_HANDLE) s.dapi->DestroyShaderModule(s.device, m, nullptr);
@@ -78,6 +101,7 @@ namespace gxvk::vk::pipelines::detail
     /// The vertex module of a key: the backend's own for its program, the record's for Translated.
     VkShaderModule VertexModule(const Key& k)
     {
+        if (k.geometry==3) return k.vertex==static_cast<uint32_t>(VertexProgram::Translated)?OwnVelocityModule(k.vertexRecord):VK_NULL_HANDLE;
         if (k.geometry==2) return k.vertex==static_cast<uint32_t>(VertexProgram::Translated)?GeometryModule(k.vertexRecord):VK_NULL_HANDLE;
         if (k.mirror) {
             if (k.vertex != static_cast<uint32_t>(VertexProgram::Translated)) return VK_NULL_HANDLE;
@@ -93,6 +117,7 @@ namespace gxvk::vk::pipelines::detail
 
     VkShaderModule FragmentModule(const Key& k)
     {
+        if (k.geometry==3) return VelocityFragModule();
         if (k.geometry==2) return k.fragment==static_cast<uint32_t>(FragmentProgram::Translated)?GeometryModule(k.fragmentRecord):VK_NULL_HANDLE;
         if (k.fragment == static_cast<uint32_t>(FragmentProgram::Translated)) return RecordModule(k.fragmentRecord);
         return k.fragment < kFragmentPrograms ? s.frag[k.fragment] : VK_NULL_HANDLE;

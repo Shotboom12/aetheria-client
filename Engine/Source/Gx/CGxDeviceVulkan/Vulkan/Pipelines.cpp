@@ -198,7 +198,7 @@ namespace gxvk::vk::pipelines
         k.cull           = draw.cull;
         k.colourMask     = draw.colourMask & 0xFu;
         k.wireframe      = (draw.wireframe && s.wireframe) ? 1u : 0u;
-        if (draw.geometry > 2 || (draw.geometry && draw.mirror)) return false;
+        if (draw.geometry > 3 || (draw.geometry && draw.mirror)) return false;
         k.geometry       = draw.geometry;
         k.mirror         = draw.mirror ? 1u : 0u;
         k.vertex         = static_cast<uint32_t>(draw.vertex);
@@ -240,6 +240,20 @@ namespace gxvk::vk::pipelines
             return false;
         }
 
+        // Set 2 for a velocity draw: the previous register file, written to the same ring as a second slice.
+        VkDescriptorSet set2    = VK_NULL_HANDLE;
+        uint32_t        offset2 = 0;
+        if (draw.geometry == 3)
+        {
+            Draw previous = draw;
+            previous.vertexRegs = draw.motionPrevRegs;
+            if (!needsRegs || !draw.motionPrevRegs || !RegsSlice(slot, serial, previous, set2, offset2))
+            {
+                ++s.stats.skipped;
+                return false;
+            }
+        }
+
         const loader::Device& d = *s.dapi;
         Bound& b = s.bound;
         if (b.cmd != cmd || b.serial != serial)
@@ -276,6 +290,7 @@ namespace gxvk::vk::pipelines
             b.offset1 = offset1;
             b.have1   = true;
         }
+        if (draw.geometry == 3) d.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout.layout, 2, 1, &set2, 1, &offset2);
 
         VkBuffer     vbs[kMaxStreams + 1];
         VkDeviceSize offsets[kMaxStreams + 1];

@@ -41,7 +41,8 @@ namespace HD {
     // Sets vertex constants c49..c53 and pixel constants c16.. for our shaders (called after the client's per-chunk
     // terrain constants). HD: hdLights picks the point lights for the chunk's sphere from the scene's lights, with
     // positions relative to camera (CWorldScene::s_activeWorldView).
-    void TerrainVertexConstants(const CAaSphere* sphere, CM2Scene* scene, const C3Vector* camera);
+    // `ground` (optional): points of the chunk's surface, so the lights are the ones that reach its ground.
+    void TerrainVertexConstants(const CAaSphere* sphere, CM2Scene* scene, const C3Vector* camera, const C3Vector* ground = nullptr, int32_t groundCount = 0);
 
     // Forever's horizon / sky and ground / sky ambient ratios (per channel) where the camera is, the ones the terrain
     // uses (redone at most every 50 ms); also used by the buildings (HdMapObj.cpp).

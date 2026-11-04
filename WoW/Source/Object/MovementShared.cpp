@@ -1,3 +1,6 @@
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrRigid.h"
+#endif
 #include "MovementShared.h"
 #include <cmath>
 #include <cstdio>
@@ -2058,6 +2061,10 @@ float CMovementShared::AddToTransport(WOWGUID transport, C44Matrix* inverse, C44
 // VERIFY: e9c7d6c2 manual
 // OFFSET: 0x0098BA90
 void CMovementShared::Teleport(const C3Vector& position, float facing, int32_t removeSpline) {
+#ifdef WOWDECOMP_FSR
+    // Explicit engine teleport event, including local/server teleports. No distance/position identity heuristic.
+    HD::Fsr::Rigid::InvalidateAll();
+#endif
     this->m_position = position;
     this->m_facing = facing;
     this->m_pitch = 0.0f;

@@ -153,6 +153,13 @@ bool Get(uint64_t serial,HD::VulkanShadows::GeometryInputs& out) {
  out.normalView=slot.colour[2].view;out.shadowLowView=slot.colour[4].view;out.shadowHighView=slot.colour[5].view;
  out.shadowEndpointFormat=VK_FORMAT_R16G16B16A16_SFLOAT;out.layout=VK_IMAGE_LAYOUT_GENERAL;out.extent=slot.extent;return true;
 }
+bool GetGBuffer(uint64_t serial,GBuffer& out) {
+ out={};if(!serial || frame::Slot()>=frame::kFramesInFlight)return false;
+ const auto& slot=slots[frame::Slot()];if(slot.valid!=serial || slot.used!=serial)return false;
+ out.albedo=slot.colour[1].view;out.normal=slot.colour[2].view;out.light=slot.colour[3].view;out.shadowLow=slot.colour[4].view;out.shadowHigh=slot.colour[5].view;
+ out.albedoFormat=formats[1];out.normalFormat=formats[2];out.lightFormat=formats[3];out.shadowFormat=formats[4];
+ out.layout=VK_IMAGE_LAYOUT_GENERAL;out.extent=slot.extent;out.serial=serial;return true;
+}
 bool Shutdown() {
  uint64_t last=0;for(const auto& slot:slots)last=std::max(last,slot.used);
  if(last>frame::Completed()){frame::Flush();if(!frame::WaitSerial(last))return false;}

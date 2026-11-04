@@ -143,6 +143,9 @@ namespace {
     }
 
     int32_t Mode() {
+        // Owner decision 2026-11-03: the Forever PBR water (hdWater 1/2) is off in Azeroth Remastered for now; the Cata 4.3.4 water
+        // (hdCataWater, default 1) is used instead. hdWater 0 is the stock 3.3.5 material that the Cata material replaces.
+        if (Visuals::Current() == Visuals::AzerothRemastered) return 0;
         return s_mode ? s_mode->m_intValue : 0;
     }
 

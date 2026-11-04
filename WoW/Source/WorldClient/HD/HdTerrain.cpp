@@ -1,3 +1,6 @@
+#include "WoW/Source/WorldClient/HD/HdDayNightMath.h"
+#include "WoW/Source/WorldClient/HD/HdTime.h"
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
 #include "WoW/Source/WorldClient/HD/HdTerrain.h"
 #include "WoW/Source/Ui/Visuals.h"
 #include <atomic>
@@ -654,7 +657,7 @@ void main(
     }
 
     // Forever's sky, horizon and ground ambient for one light: clear weather blended to storm like hdFog does.
-    bool LightAmbients(const LightRec* light, int32_t time, float storm, float (*amb)[3]) {
+    bool LightAmbients(const LightRec* light, float time, float storm, float (*amb)[3]) {
         if (!HD::ForeverAmbientsAt(light, 0, time, amb[0], amb[1], amb[2])) return false;
         float stormAmb[3][3];
         if (storm > 0.0f && HD::ForeverAmbientsAt(light, 2, time, stormAmb[0], stormAmb[1], stormAmb[2])) {
@@ -674,7 +677,7 @@ void main(
         const DayNight::DNInfo& info = DayNight::g_dnInfo;
         const TSGrowableArray<const LightRec*>& lights = DayNight::g_areaLights;
         if (lights.m_count) {
-            int32_t time = static_cast<int32_t>(info.m_dayProgression * 2880.0f);
+            float time = HD::DayNightBandTime(info.m_dayProgression * 2880.0f);
             float storm = info.m_stormBlend;
             float none[3][3] = { { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f } };
             if (!LightAmbients(lights.m_data[0], time, storm, amb)) memcpy(amb, none, sizeof(amb));
@@ -718,21 +721,26 @@ void main(
         }
         for (int32_t c = 0; c < 3; c++) {
             // a channel Forever leaves at 0 in the sky colour has no ratio: keep the sky's (1)
-            horizon[c] = amb[0][c] > 0.001f ? Clamp(amb[1][c] / amb[0][c], 0.0f, 4.0f) : 1.0f;
-            ground[c] = amb[0][c] > 0.001f ? Clamp(amb[2][c] / amb[0][c], 0.0f, 4.0f) : 1.0f;
+            if(HD::DayNightSmoothingEnabled()){
+                horizon[c]=HD::DayNightMath::AmbientRatio(amb[0][c],amb[1][c]);ground[c]=HD::DayNightMath::AmbientRatio(amb[0][c],amb[2][c]);
+            }else{
+                horizon[c] = amb[0][c] > 0.001f ? Clamp(amb[1][c] / amb[0][c], 0.0f, 4.0f) : 1.0f;
+                ground[c] = amb[0][c] > 0.001f ? Clamp(amb[2][c] / amb[0][c], 0.0f, 4.0f) : 1.0f;
+            }
         }
     }
 
-    // HD: the light walk is per frame, not per chunk or per building batch: redo it at most every 50 ms
+    // HD: the light walk is per frame, not per chunk or per building batch: redo it once per visual frame in smooth mode (50 ms in diagnostic mode)
     // (shared by the terrain and the buildings, HdMapObj.cpp)
     ULONGLONG s_hemiTime = 0;
+    uint64_t s_hemiFrame=~uint64_t(0);
     float s_horizonRatio[3] = { 1.0f, 1.0f, 1.0f };
     float s_groundRatio[3] = { 1.0f, 1.0f, 1.0f };
 
     void RefreshHemisphere() {
-        ULONGLONG now = GetTickCount64();
-        if (s_hemiTime && now - s_hemiTime < 50) return;
-        s_hemiTime = now;
+        if(HD::DayNightSmoothingEnabled()){
+            const uint64_t frame=HD::DayNightFrameSerial();if(s_hemiFrame==frame)return;s_hemiFrame=frame;
+        }else{ULONGLONG now=GetTickCount64();if(s_hemiTime&&now-s_hemiTime<50)return;s_hemiTime=now;}
         int32_t hemi = s_hemi ? s_hemi->m_intValue : 1;
         if (hemi == 2) return; // HD test: keep the last ratios
         CurrentHemisphere(s_horizonRatio, s_groundRatio);
@@ -904,7 +912,10 @@ void HD::TerrainShader(CGxShader* shader, int32_t kind, int32_t permutation) {
     ShowState(state);
 }
 
-void HD::TerrainVertexConstants(const CAaSphere* sphere, CM2Scene* scene, const C3Vector* camera) {
+void HD::TerrainVertexConstants(const CAaSphere* sphere, CM2Scene* scene, const C3Vector* camera, const C3Vector* ground, int32_t groundCount) {
+#ifdef AETHERIA_HD_LAMP
+    HD::Lamp::Native::SnapshotPixelDraw(0);
+#endif
     RegisterCVars();
     if (!g_theGxDevicePtr) return;
     RefreshHemisphere(); // HD: shared with the buildings (HD::TerrainHemisphere)
@@ -938,7 +949,7 @@ void HD::TerrainVertexConstants(const CAaSphere* sphere, CM2Scene* scene, const 
 
     // HD: pixel c16 = (Forever lighting, test view, point light count, lights test view), c17.. = the lights
     float pixel[4 + 16 * HD::kLightsMax];
-    int32_t count = perPixel ? HD::LightsForSphere(scene, *camera, *sphere, pixel + 4) : 0;
+    int32_t count = perPixel ? HD::LightsForGround(scene, *camera, *sphere, ground, groundCount, pixel + 4) : 0;
     pixel[0] = constants[2];
     pixel[1] = constants[3];
     pixel[2] = static_cast<float>(count);

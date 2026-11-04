@@ -1,4 +1,8 @@
 #include "Engine/Source/Model2/M2BoneBudget.h"
+#ifdef WOWDECOMP_FSR
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/fsr/HdFsrRigid.h"
+#endif
+#include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
 #include <cmath>
 #include <cstdint>
 #include "Engine/Source/Model2/CM2SceneRender.h"
@@ -229,6 +233,9 @@ void CM2SceneRender::SetupLighting() {
 
     this->m_curLocalLighting = localLighting;
     CShaderEffect::SetLocalLighting(this->m_curLighting, localLighting, nullptr);
+#ifdef AETHERIA_HD_LAMP
+    HD::Lamp::Native::ModelOwner(reinterpret_cast<uintptr_t>(this->m_curModel));
+#endif
     CShaderEffect::s_shadowValue = shadow;
 
     uint32_t fogMode;
@@ -438,6 +445,18 @@ void CM2SceneRender::SetupMaterial() {
 // VERIFY: aeedaf63 manual
 // OFFSET: 0x008203B0
 void CM2SceneRender::DrawBatch() {
+#ifdef WOWDECOMP_FSR
+    // Only one affine palette matrix for the WHOLE mesh; multi-bone skinning and wind wait for M3/M4.
+    const auto* fsrSkin=this->m_curElement->m_skinSection;
+    const bool fsrPalette=CShaderEffect::s_enableShaders&&fsrSkin&&fsrSkin->m_boneCount>0&&fsrSkin->m_boneCount<=75
+        &&fsrSkin->m_boneComboIndex<=this->m_data->m_boneCombos.m_count
+        &&fsrSkin->m_boneCount<=this->m_data->m_boneCombos.m_count-fsrSkin->m_boneComboIndex;
+    HD::Fsr::Rigid::Scope fsrRigid(this->m_curModel,fsrSkin,
+        CShaderEffect::s_enableShaders&&this->m_data->m_bones.m_count==1&&fsrSkin&&fsrSkin->m_boneCount==1&&fsrSkin->m_boneInfluences<=1,
+        false,fsrPalette?uint32_t(fsrSkin->m_boneCount)*3u:0u,
+        fsrPalette?&this->m_data->m_boneCombos[fsrSkin->m_boneComboIndex]:nullptr);
+    HD::Fsr::Rigid::DiagModel fsrDiagModel(this->m_curModel->m_shared->m_fileNameWithoutPath,fsrSkin?uint32_t(fsrSkin->m_boneCount):0u,uint32_t(this->m_data->m_bones.m_count)); // DIAG M3 (2026-10-31)
+#endif
     DebugLog("Batch: model=%s index=%d", this->m_curModel->m_shared->m_fileNameWithoutPath, this->m_curElement->m_index);
 
     M2Element* element = this->m_curElement;
@@ -965,6 +984,9 @@ void CM2SceneRender::DrawCallback() {
 // VERIFY: ae7d8da4 manual
 // OFFSET: 0x00823130
 void CM2SceneRender::Draw(M2PASS pass, M2Element* elements, uint32_t* indices, uint32_t count) {
+#ifdef WOWDECOMP_FSR
+    HD::Fsr::Rigid::Scope fsrNoInheritedOwner(nullptr,nullptr,false); // callbacks/particles/batched doodads cannot inherit a WMO owner
+#endif
     if (!count) {
         return;
     }

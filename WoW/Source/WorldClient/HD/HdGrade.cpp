@@ -2,6 +2,7 @@
 // Azeroth Remastered's HdVulkanGrade.cpp on GxEffects. The donor graded the back buffer in place; here a compute grades
 // the shared frame (HdFrame.h), which bloom has already written when it is on. LUT choice, the shader's formulas and
 // the cvars are the donor's.
+#include "WoW/Source/WorldClient/HD/HdTime.h"
 #include "WoW/Source/WorldClient/HD/HdGrade.h"
 
 #include <algorithm>
@@ -136,7 +137,7 @@ namespace {
     }
 
     // One light's grading (clear weather blended to storm), as weights. No Forever grading = identity (0).
-    void AddLight(LutWeights& luts, const LightRec* light, int32_t time, float storm, float weight) {
+    void AddLight(LutWeights& luts, const LightRec* light, float time, float storm, float weight) {
         for (int32_t pass = 0; pass < 2; pass++) {
             float w = weight * (pass == 0 ? 1.0f - storm : storm);
             if (w <= 0.0f) continue;
@@ -158,7 +159,7 @@ namespace {
         const DayNight::DNInfo& info = DayNight::g_dnInfo;
         const TSGrowableArray<const LightRec*>& lights = DayNight::g_areaLights;
         if (!lights.m_count) return;
-        int32_t time = static_cast<int32_t>(info.m_dayProgression * 2880.0f);
+        float time = HD::DayNightBandTime(info.m_dayProgression * 2880.0f);
         float storm = Clamp(info.m_stormBlend, 0.0f, 1.0f);
         AddLight(luts, lights.m_data[0], time, storm, 1.0f);
 

@@ -173,6 +173,7 @@
 #include "Engine/Source/Tempest/C33Matrix.h"
 #include "WoW/Source/DB/Rec/CreatureFamilyRec.h"
 #include "WoW/Source/DB/Rec/CreatureTypeRec.h"
+#include "WoW/Source/WorldClient/HD/HdCataRenderPerf.h" // HD: hdCataRenderPerf
 
 namespace {
 // User inactivity thresholds in milliseconds; signed to match idleTime arithmetic.
@@ -1994,6 +1995,7 @@ void CGGameUI::InitializeGame() {
 // VERIFY: fa2430a7 manual
 // OFFSET: 0x0052AF40
 int32_t CGGameUI::Idle(const void* data, void* param) {
+    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::IdleUi); // HD: hdCataRenderPerf
     if (g_theGxDevicePtr->StereoEnabled()) {
         float convergence = g_theGxDevicePtr->StereoGetConvergence();
 
@@ -2012,6 +2014,7 @@ int32_t CGGameUI::Idle(const void* data, void* param) {
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
 
     if (player && !(player->m_unit->m_unitFieldFlags & 0x80000)) {
+        HD::CataRenderPerf::Scope hdPerfGc(HD::CataRenderPerf::Stage::LuaGc); // HD: hdCataRenderPerf
         lua_gc(L, LUA_GCSTEP, 1);
     }
 
