@@ -43,6 +43,6 @@ Highest risk items: Sirus animations and any race assets taken from other server
 | Component | Use | License | Note |
 |---|---|---|---|
 | Azeroth Remastered 2026-11-03 source (Madominator1): hd/lamp, hd/lumen, hd/fsr, hd/dlss, WaystoneHD addon | Ported to Aetheria's native Vulkan device (Azeroth Remastered mode only) | GPL-3.0-or-later (source headers) | Lumenveil parts keep their own license files under hd/lumen/licences; the GPL-2-only question above still applies |
-| AMD FidelityFX SDK headers (ThirdParty/FidelityFX) | FSR 3.1 upscaling; the runtime DLLs are NOT included and are loaded from <exe>/FSR | MIT (ThirdParty/FidelityFX/license.md) | |
-| NVIDIA DLSS / NGX SDK 310.9.16 | DLSS Super Resolution (hd/HdNativeDlss) | NVIDIA RTX SDK license | NOT included. Build with AETHERIA_NATIVE_DLSS=ON only after placing the SDK in ThirdParty/DLSS yourself; nvngx_dlss.dll is loaded from <exe>/DLSS |
+| AMD FidelityFX SDK headers (ThirdParty/FidelityFX) and FSR runtime DLLs (Redist/FSR) | FSR 3.1 upscaling; DLLs loaded from <exe>/FSR | Headers MIT; DLLs AMD binary-redistribution license (Redist/FSR/LICENSE-AMD-FidelityFX.md) | DLLs unmodified, with the license text |
+| NVIDIA DLSS runtime (Redist/DLSS/nvngx_dlss.dll) and SDK 310.9.16 | DLSS Super Resolution (hd/HdNativeDlss) | NVIDIA RTX SDK license (Redist/DLSS/LICENSE-NVIDIA-RTX-SDK.txt) | The DLL is redistributed unmodified as part of this application. The SDK headers and nvsdk_ngx_d.lib are NOT included (the license does not allow redistributing the SDK itself): Tools/Setup-DlssSdk.ps1 fetches them from github.com/NVIDIA/DLSS; build with AETHERIA_NATIVE_DLSS=ON afterwards |
 | lumen/data/lampdata.bin | Lumenveil lamp table | not redistributed | NOT included |
