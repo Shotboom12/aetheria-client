@@ -653,7 +653,7 @@ void CGGameUI::RegisterGameCVars() {
     s_cvThreatShowNumeric = CVar::Register("threatShowNumeric", "Whether or not to show numeric threat on the target and focus frames", 0x10, "0", nullptr, CATEGORY_GAME, false, nullptr, false);
     s_cvThreatPlaySounds = CVar::Register("threatPlaySounds", "Whether or not to sounds when certain threat transitions occur", 0x10, "1", nullptr, CATEGORY_GAME, false, nullptr, false);
     ViolenceLevelsRegisterCVars();
-    s_cvShowAllSpellRanks = CVar::Register("ShowAllSpellRanks", "show either all spell ranks, or only the highest rank", 0x10, "1", nullptr, CATEGORY_GAME, false, nullptr, false);
+    s_cvShowAllSpellRanks = CVar::Register("ShowAllSpellRanks", "show either all spell ranks, or only the highest rank", 0x10, "0", nullptr, CATEGORY_GAME, false, nullptr, false);
     g_ShowClassColorInNameplateCVar = CVar::Register("ShowClassColorInNameplate", "use this to display the class color in the nameplate health bar", 0x20, "0", ShowClassColorInNameplateCallback, CATEGORY_GAME, false, nullptr, false);
     g_previewTalentsCVar = CVar::Register("previewTalents", "Toggles the ability to preview talents before spending talent points.", 0x20, "0", CVarHandler_previewTalents, CATEGORY_GAME, false, nullptr, false);
     s_cvLfgSelectedRoles = CVar::Register("lfgSelectedRoles", "Stores what roles the player is willing to take on.", 0x120, "0", nullptr, CATEGORY_GAME, false, nullptr, false);

@@ -464,7 +464,14 @@ void SetPortraitTexture(CSimpleTexture* texture, const char* fileName) {
     ITEMPORTRAIT* portrait = s_itemPortraits.Ptr(fileName);
 
     if (portrait) {
-        texture->SetTexture(portrait->m_texture);
+        // Esteria: an earlier call that could not load the file (for example a name that already ends in ".blp")
+        // leaves an entry with no texture. Setting that null texture blanked the caller's own icon on every call after
+        // the first, which is how the swap wheel's Kyrian, Centaur and Slime Giant portraits vanished when it was
+        // opened a second time. Leave the caller's texture alone instead.
+        if (portrait->m_texture) {
+            texture->SetTexture(portrait->m_texture);
+        }
+
         return;
     }
 

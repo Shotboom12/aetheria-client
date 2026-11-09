@@ -235,11 +235,11 @@ struct DNStars {
 }
 
 namespace DayNight {
-    float InterpFloatBand(const LightFloatBandRec* rec, int32_t now, int32_t bandIndex);
-    float CalcIndividualColorFromDBRec(int32_t time, const LightParamsRec* params, int32_t band);
-    void LoadLightingBands(int32_t time, CurrentLight* light, const LightParamsRec* params);
+    float InterpFloatBand(const LightFloatBandRec* rec, float now, int32_t bandIndex);
+    float CalcIndividualColorFromDBRec(float time, const LightParamsRec* params, int32_t band);
+    void LoadLightingBands(float time, CurrentLight* light, const LightParamsRec* params);
     float CalcFogRate(float fogStart, float fogEnd);
-    void CalcColors(int32_t time, CurrentLight* light, const LightParamsRec* params);
+    void CalcColors(float time, CurrentLight* light, const LightParamsRec* params);
     void BlendColors(CurrentLight* dst, const CurrentLight* src, float t);
     const LightParamsRec* GetLightParams(const LightRec* light, int32_t param);
     void SetLightColors();

@@ -234,6 +234,7 @@ namespace Retail::Db2::appearance
             Table textureLayout, textureSection;
             std::unordered_map<uint64_t, uint32_t> modelByRaceSex;
             std::unordered_map<uint32_t, std::vector<const wdc5::Row*>> elementsByChoice;
+            std::unordered_map<uint32_t, std::vector<const wdc5::Row*>> elementsByRelated;
             std::unordered_map<uint32_t, std::vector<const wdc5::Row*>> layersByLayout;
             std::unordered_map<uint32_t, std::vector<const wdc5::Row*>> geosetsByDisplay;
             std::unordered_map<uint32_t, std::vector<const wdc5::Row*>> sectionsByLayout;
@@ -355,6 +356,9 @@ namespace Retail::Db2::appearance
             }
             for (const wdc5::Row& row : State().element.Rows())
                 State().elementsByChoice[State().element.Value(row, "ChrCustomizationChoiceID")].push_back(&row);
+            for (const wdc5::Row& row : State().element.Rows())
+                if (const uint32_t related = State().element.Value(row, "RelatedChrCustomizationChoiceID"))
+                    State().elementsByRelated[related].push_back(&row);
             for (const wdc5::Row& row : State().textureLayer.Rows())
                 State().layersByLayout[row.parentId].push_back(&row);
             for (const wdc5::Row& row : State().creatureGeoset.Rows())
@@ -553,6 +557,50 @@ namespace Retail::Db2::appearance
             if (!option || State().option.Value(*option, "ChrModelID") != selectedModel) continue;
             AddChoice(choiceIds[i], out.textureLayoutId, choiceIds, choiceCount, out,
                 sex == 0 && (chrRaceId == 2 || chrRaceId == 36)); // Orc posture; other conditional forms need separate integration.
+        }
+
+        // Forever tattoos (Skyborne body and face): the style choice owns no element. Its materials hang off the
+        // COLOUR option, one element per style. Forever's own creator re-evaluates the colour option's requirements
+        // when the style changes, so a style always has a colour; here the colour option can stay on its "none"
+        // choice, which has no element, and the tattoo then paints nothing. When a taken style has no element in
+        // any taken choice of a tattoo option, take that option's first creatable choice that names the style.
+        if (currentSource == SourceKind::Forever)
+        {
+            for (uint32_t i = 0; i < choiceCount; ++i)
+            {
+                const auto related = State().elementsByRelated.find(choiceIds[i]);
+                if (related == State().elementsByRelated.end()) continue;
+                std::unordered_map<uint32_t, const wdc5::Row*> firstByOption;
+                for (const wdc5::Row* element : related->second)
+                {
+                    const uint32_t dependentId = State().element.Value(*element, "ChrCustomizationChoiceID");
+                    const auto* dependent = State().choice.Find(dependentId);
+                    if (!dependent) continue;
+                    const uint32_t optionId = State().choice.Value(*dependent, "ChrCustomizationOptionID");
+                    const auto* option = State().option.Find(optionId);
+                    if (!option || State().option.Value(*option, "ChrModelID") != selectedModel) continue;
+                    if (State().option.Text(*option, "Name_lang").find("Tattoo") == std::string::npos) continue;
+                    if (!AllowCreationChoice(currentSource, selectedModel, State().choice.Value(*dependent, "ChrCustomizationReqID"),
+                                             State().choice.Text(*dependent, "Name_lang"))) continue;
+                    bool covered = false;
+                    for (uint32_t j = 0; j < choiceCount && !covered; ++j)
+                    {
+                        const auto* taken = State().choice.Find(choiceIds[j]);
+                        if (!taken || State().choice.Value(*taken, "ChrCustomizationOptionID") != optionId) continue;
+                        const auto elements = State().elementsByChoice.find(choiceIds[j]);
+                        if (elements == State().elementsByChoice.end()) continue;
+                        for (const wdc5::Row* candidate : elements->second)
+                            covered = covered || State().element.Value(*candidate, "RelatedChrCustomizationChoiceID") == choiceIds[i];
+                    }
+                    if (covered) continue;
+                    const auto best = firstByOption.find(optionId);
+                    if (best == firstByOption.end() ||
+                        State().choice.Value(*dependent, "OrderIndex") < State().choice.Value(*best->second, "OrderIndex"))
+                        firstByOption[optionId] = dependent;
+                }
+                for (const auto& entry : firstByOption)
+                    AddChoice(entry.second->id, out.textureLayoutId, choiceIds, choiceCount, out, false);
+            }
         }
 
         std::stable_sort(out.layers.begin(), out.layers.end(),

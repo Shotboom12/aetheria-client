@@ -11,6 +11,76 @@
 #include "Engine/Source/Tempest/CFrustum.h"
 #include "Engine/Source/Tempest/CImVector.h"
 
+// HD: texture metadata is a sidecar: keep the original x64/x86 CShadowBand layout unchanged.
+namespace {
+    struct SunBandState {
+        C3Vector rendering;
+        C3Vector texture[2];
+        bool valid[2]{};
+        bool building=false;
+    };
+    SunBandState s_sunBands[3];
+    bool s_sunCache=false;
+    float s_refreshDegrees=.5f;
+    int32_t s_nextSunBand=0;
+    bool s_texelSnap=true;
+    // HD: the light-space axes GxuXformCreateLookAtXXX builds for a shadow band (z toward the light's travel,
+    // x = cross(up, z), y = cross(z, x)). False when degenerate.
+    bool LightAxes(const C3Vector& sun,const C3Vector& up,double* x,double* y){
+        double z[3]={sun.x,sun.y,sun.z};double n=std::sqrt(z[0]*z[0]+z[1]*z[1]+z[2]*z[2]);if(!(n>1e-6))return false;
+        for(double& c:z)c/=n;
+        x[0]=up.y*z[2]-up.z*z[1];x[1]=up.z*z[0]-up.x*z[2];x[2]=up.x*z[1]-up.y*z[0];
+        n=std::sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]);if(!(n>1e-6))return false;for(int i=0;i<3;++i)x[i]/=n;
+        y[0]=z[1]*x[2]-z[2]*x[1];y[1]=z[2]*x[0]-z[0]*x[2];y[2]=z[0]*x[1]-z[1]*x[0];return true;
+    }
+    double BandTexel(float radius){return CShadowCache::s_shadowSize&&radius>0?2.0*radius/double(CShadowCache::s_shadowSize):0.0;}
+    // HD: moving a band centre by a world step that is not a whole number of texels shifts every shadow edge by a
+    // fraction of a texel (the shadows swim/jump while walking). Keep the centre on the light-space texel grid.
+    C3Vector SnapToTexels(const C3Vector& p,const C3Vector& sun,const C3Vector& up,float radius){
+        const double texel=BandTexel(radius);double x[3],y[3];
+        if(!s_texelSnap||!(texel>0)||!LightAxes(sun,up,x,y))return p;
+        const double u=p.x*x[0]+p.y*x[1]+p.z*x[2],v=p.x*y[0]+p.y*y[1]+p.z*y[2];
+        const double du=std::floor(u/texel+.5)*texel-u,dv=std::floor(v/texel+.5)*texel-v;
+        return C3Vector(float(p.x+du*x[0]+dv*y[0]),float(p.y+du*x[1]+dv*y[1]),float(p.z+du*x[2]+dv*y[2]));
+    }
+    void ResetSunBands(){for(auto& b:s_sunBands)b=SunBandState{};s_nextSunBand=0;}
+    const C3Vector& ReadSun(int32_t i){
+        auto& b=CShadowCache::s_extShadowBands[i];auto& meta=s_sunBands[i];
+        return s_sunCache&&meta.valid[b.m_current]?meta.texture[b.m_current]:CShadowCache::s_sunDir;
+    }
+    const C3Vector& RenderSun(int32_t i){return s_sunCache&&s_sunBands[i].building?s_sunBands[i].rendering:CShadowCache::s_sunDir;}
+    bool SunChanged(const C3Vector& a,const C3Vector& b){
+        // Directions supplied by PreUpdate are normalized. Chord distance avoids acos precision loss.
+        const double x=double(a.x)-b.x,y=double(a.y)-b.y,z=double(a.z)-b.z;
+        const double chord=2.0*std::sin(double(s_refreshDegrees)*.008726646259971648);
+        return x*x+y*y+z*z>chord*chord;
+    }
+    int32_t PickSunBand(const C3Vector& pos){
+        for(int32_t i=0;i<3;++i)if(s_sunBands[i].building)return i;
+        for(int32_t n=0;n<3;++n){const int32_t i=(s_nextSunBand+n)%3;auto& b=CShadowCache::s_extShadowBands[i];auto& meta=s_sunBands[i];
+            const float x=b.m_lastPos.x-pos.x,y=b.m_lastPos.y-pos.y,z=b.m_lastPos.z-pos.z;
+            if(!meta.valid[b.m_current]||x*x+y*y+z*z>b.m_updateDistance||SunChanged(ReadSun(i),CShadowCache::s_sunDir))return i;
+        }
+        return -1;
+    }
+}
+void CShadowCache::ConfigureSunCache(bool enabled,float degrees){
+    s_refreshDegrees=std::isfinite(degrees)?(degrees<.01f?.01f:(degrees>5?5:degrees)):.5f;
+    if(enabled!=s_sunCache){
+        ResetSunBands();
+        if(enabled)for(auto& b:s_extShadowBands)b.m_updateCount=0; // discard an old mixed-direction partial build
+        s_sunCache=enabled;
+    }
+}
+C3Vector CShadowCache::BandSunDirection(int32_t band){return band>=0&&band<3?ReadSun(band):s_sunDir;}
+void CShadowCache::ConfigureTexelSnap(bool enabled){s_texelSnap=enabled;}
+void CShadowCache::BandTexelPhase(int32_t band,float* u,float* v){
+    *u=*v=-1.0f;if(band<0||band>2)return;auto& b=s_extShadowBands[band];
+    const double texel=BandTexel(b.m_radius);double x[3],y[3];if(!(texel>0)||!LightAxes(ReadSun(band),b.m_dir,x,y))return;
+    const C3Vector& p=b.m_lastPos;const double pu=(p.x*x[0]+p.y*x[1]+p.z*x[2])/texel,pv=(p.x*y[0]+p.y*y[1]+p.z*y[2])/texel;
+    *u=float(pu-std::floor(pu+.5));*v=float(pv-std::floor(pv+.5));
+}
+
 // STATIC: 0x00B1D518
 float CShadowCache::s_debugAspect = 1.0f;
 
@@ -456,6 +526,7 @@ void CShadowCache::SetShadowMapDetailDoodad() {
 // OFFSET: 0x00874890
 void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos, CFrustum& frustum, int32_t useCullFrustum) {
     uint32_t frame = 0;
+    const int32_t sunBand=s_sunCache&&GetShadowMode()<SHADOW_VERY_HIGH?PickSunBand(pos):-1;
 
     if (CShadowCache::GetShadowMode() < SHADOW_VERY_HIGH) {
         C44Matrix identity;
@@ -466,7 +537,11 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_textureIndex[i] = band.m_current == 0;
             data.m_active[i] = 0;
 
-            if (!band.m_updateCount) {
+            // HD: one progressive cached band at a time, including movement-triggered builds.
+            if(s_sunCache&&i!=static_cast<uint32_t>(sunBand))continue;
+            if(s_sunCache&&!s_sunBands[i].building){s_sunBands[i].rendering=s_sunDir;s_sunBands[i].building=true;band.m_updateCount=0;}
+
+            if (!s_sunCache && !band.m_updateCount) {
                 float dx = band.m_lastPos.x - pos.x;
                 float dy = band.m_lastPos.y - pos.y;
                 float dz = band.m_lastPos.z - pos.z;
@@ -479,7 +554,7 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_radius[i] = band.m_radius;
 
             if (!band.m_updateCount) {
-                band.m_pos = pos;
+                band.m_pos = SnapToTexels(pos, RenderSun(i), band.m_dir, band.m_radius); // HD: hdShadowTexelSnap (was: pos)
             }
 
             data.m_pos[i] = band.m_pos;
@@ -511,7 +586,7 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_texBounds[i][2] = 0.5f - data.m_bounds[i][3] * scale;
             data.m_texBounds[i][3] = 0.5f - scale * data.m_bounds[i][2];
 
-            CShadowCache::s_frustumCallback(data.m_frustums[i], data.m_matrices[i], band.m_dir, data, i);
+            CShadowCache::s_frustumCallback(data.m_frustums[i], data.m_matrices[i], band.m_dir, data, i, RenderSun(i));
             data.m_frustums[i].Extents(data.m_extents[i]);
 
             if (i && data.m_active[i - 1]) {
@@ -534,7 +609,7 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_bounds[i][2] = -data.m_radius[i];
             data.m_bounds[i][3] = data.m_radius[i];
 
-            CShadowCache::s_frustumCallback(frustum, identity, band.m_dir, data, i);
+            CShadowCache::s_frustumCallback(frustum, identity, band.m_dir, data, i, RenderSun(i));
             frustum.InvertPlanes();
 
             data.m_bounds[i][0] = bounds[0];
@@ -542,12 +617,14 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_bounds[i][2] = bounds[2];
             data.m_bounds[i][3] = bounds[3];
 
-            band.m_updateCount++;
-
-            if ((i < 2 && band.m_updateCount >= 9) || (i == 2 && band.m_updateCount >= 25)) {
-                band.m_lastPos = band.m_pos;
-                band.m_updateCount = 0;
-                band.m_current = band.m_current == 0;
+            // HD: publish only after the final tile's render callback succeeded (RenderBands).
+            if(!s_sunCache){
+                band.m_updateCount++;
+                if ((i < 2 && band.m_updateCount >= 9) || (i == 2 && band.m_updateCount >= 25)) {
+                    band.m_lastPos = band.m_pos;
+                    band.m_updateCount = 0;
+                    band.m_current = band.m_current == 0;
+                }
             }
 
             data.m_active[i] = 1;
@@ -578,6 +655,7 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             band.m_pos.x = floor(invCell * band.m_pos.x) * cell;
             band.m_pos.y = floor(band.m_pos.y * invCell) * cell;
             band.m_pos.z = floor(band.m_pos.z * invCell) * cell;
+            band.m_pos = SnapToTexels(band.m_pos, RenderSun(i), band.m_dir, band.m_radius); // HD: hdShadowTexelSnap
 
             data.m_pos[i] = band.m_pos;
 
@@ -591,7 +669,7 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             data.m_texBounds[i][2] = 0.0f;
             data.m_texBounds[i][3] = 1.0f;
 
-            CShadowCache::s_frustumCallback(data.m_frustums[i], data.m_matrices[i], band.m_dir, data, i);
+            CShadowCache::s_frustumCallback(data.m_frustums[i], data.m_matrices[i], band.m_dir, data, i, RenderSun(i));
             data.m_frustums[i].Extents(data.m_extents[i]);
 
             data.m_useCullFrustum[i] = useCullFrustum;
@@ -642,7 +720,19 @@ void CShadowCache::RenderBands(CShadowCacheQueryData& data) {
             target = TextureGetGxTex(band.m_textures[data.m_textureIndex[i]], 1, nullptr);
         }
 
-        CShadowCache::s_renderCallback(data, i, target, colorTarget, band.m_dir);
+        const int32_t rendered=CShadowCache::s_renderCallback(data, i, target, colorTarget, band.m_dir, RenderSun(i));
+        if(s_sunCache&&rendered){
+            auto& meta=s_sunBands[i];
+            if(mode<SHADOW_VERY_HIGH){
+                ++band.m_updateCount;
+                if(band.m_updateCount>=(i<2?9u:25u)){
+                    const uint32_t texture=data.m_textureIndex[i];
+                    meta.texture[texture]=meta.rendering;meta.valid[texture]=true;
+                    band.m_lastPos=band.m_pos;band.m_current=texture;band.m_updateCount=0;
+                    meta.building=false;s_nextSunBand=(i+1)%3;
+                }
+            }else{meta.texture[0]=s_sunDir;meta.valid[0]=true;}
+        }
     }
 }
 
@@ -665,7 +755,7 @@ void CShadowCache::PostUpdate() {
     translate.Translate(offset);
 
     C44Matrix matrix;
-    CShadowCache::s_matrixCallback(CShadowCache::s_extDynShadow.m_lastPos, CShadowCache::s_extDynShadow.m_radius, matrix, CShadowCache::s_extDynShadow.m_dir, -1);
+    CShadowCache::s_matrixCallback(CShadowCache::s_extDynShadow.m_lastPos, CShadowCache::s_extDynShadow.m_radius, matrix, CShadowCache::s_extDynShadow.m_dir, -1, CShadowCache::s_sunDir);
     matrix = matrix * scale * translate;
 
     CShadowCache::s_shadowMatrices[0].x = matrix.a0;
@@ -684,7 +774,7 @@ void CShadowCache::PostUpdate() {
     for (int32_t i = 0; i < 3; i++) {
         CShadowBand& band = CShadowCache::s_extShadowBands[i];
 
-        CShadowCache::s_matrixCallback(band.m_lastPos, band.m_radius, matrix, band.m_dir, i);
+        CShadowCache::s_matrixCallback(band.m_lastPos, band.m_radius, matrix, band.m_dir, i, ReadSun(i));
         matrix = matrix * scale * translate;
 
         CShadowCache::s_shadowMatrices[3 + 3 * i].x = matrix.a0;
@@ -735,6 +825,7 @@ CShadowCacheQueryData::CShadowCacheQueryData() {
 // VERIFY: e0449636 manual
 // OFFSET: 0x00875760
 void CShadowCache::ClearBandTextures() {
+    ResetSunBands(); // HD: metadata cannot outlive the textures it describes
     if (CShadowCache::s_shadowMode <= SHADOW_MEDIUM) {
         CShadowCache::s_needsRebuild = 0;
         return;
@@ -994,7 +1085,7 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
     data.m_texBounds[0][3] = 1.0f;
     data.m_texBounds[0][2] = 0.0f;
 
-    CShadowCache::s_frustumCallback(data.m_frustums[0], data.m_matrices[0], CShadowCache::s_extDynShadow.m_dir, data, 0);
+    CShadowCache::s_frustumCallback(data.m_frustums[0], data.m_matrices[0], CShadowCache::s_extDynShadow.m_dir, data, 0, CShadowCache::s_sunDir);
     data.m_frustums[0].Extents(data.m_extents[0]);
 
     CShadowCache::s_extDynShadow.m_dir = C3Vector(1.0f, 0.0f, 0.0f);
@@ -1022,7 +1113,7 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
         colorTarget = TextureGetGxTex(CShadowCache::s_intDynShadow, 1, nullptr);
     }
 
-    CShadowCache::s_renderCallback(data, 0, target, colorTarget, CShadowCache::s_extDynShadow.m_dir);
+    CShadowCache::s_renderCallback(data, 0, target, colorTarget, CShadowCache::s_extDynShadow.m_dir, CShadowCache::s_sunDir);
 
     if (useCullFrustum) {
         data.m_queryFlags[0] = 1;
@@ -1042,7 +1133,7 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
             colorTarget = TextureGetGxTex(CShadowCache::s_extDynShadow.m_textures[1], 1, nullptr);
         }
 
-        CShadowCache::s_renderCallback(data, 0, target, colorTarget, CShadowCache::s_extDynShadow.m_dir);
+        CShadowCache::s_renderCallback(data, 0, target, colorTarget, CShadowCache::s_extDynShadow.m_dir, CShadowCache::s_sunDir);
     }
 
     if (mode > SHADOW_MEDIUM) {

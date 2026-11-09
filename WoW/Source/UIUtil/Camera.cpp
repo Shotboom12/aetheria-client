@@ -6,6 +6,8 @@
 #include "Engine/Source/Base/Status.h"
 #include "Engine/Source/ConsoleBase/ConsoleCommand.h"
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
+#include "Engine/Source/FrameScript/FrameScript.h"
+#include "Engine/Source/lua-5.1/src/lua.h"
 #include "Engine/Source/Gxu/Gxu.h"
 #include "Engine/Source/Model2/M2Data.h"
 #include "Engine/Source/Model2/M2Model.h"
@@ -37,6 +39,7 @@
 #include "WoW/Source/Ui/BarberShop.h"
 #include "WoW/Source/Ui/GameUI.h"
 #include "WoW/Source/Ui/SpeedFlying.h"
+#include "WoW/Source/UIUtil/ActionCameraSettings.h"
 #include "WoW/Source/Ui/WorldFrame.h"
 #include "WoW/Source/WorldClient/SurfaceCover.h"
 #include "WoW/Source/UIUtil/InputControl.h"
@@ -133,7 +136,8 @@ static float WrapAngle0To2Pi(float angle) {
 // VERIFY: 0904e9a9 auto
 // OFFSET: 0x005FF500
 float CGCamera::FOV() const {
-    float fov = this->m_targetFov + this->m_fov + SpeedFlying::CameraFovBoost();
+    float fov = this->m_targetFov + this->m_fov + this->m_actionMountFovOffset +
+        this->m_actionMountSpeedFov + SpeedFlying::CameraFovBoost();
     return 0.0f > fov ? 0.0f : (3.1241393f <= fov ? 3.1241393f : fov);
 }
 
@@ -2325,6 +2329,171 @@ void CGCamera::ZoomToDistance(float distance, uint32_t time, float duration, int
     }
 }
 
+static float MountDot(const C3Vector& a, const C3Vector& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+static C3Vector ClampMountFollow(C3Vector lag, const CGCamera& camera,
+    const MountCameraPolicy::Profile& profile, bool flying) {
+    C3Vector forward = camera.Forward();
+    C3Vector up = flying ? camera.Up() : C3Vector(0.0f, 0.0f, 1.0f);
+    if (!flying) forward.z = 0.0f;
+    float length = std::sqrt(MountDot(forward, forward));
+    if (!std::isfinite(length) || length < 0.001f) return C3Vector(0.0f, 0.0f, 0.0f);
+    forward = forward * (1.0f / length);
+
+    up = up - forward * MountDot(up, forward);
+    length = std::sqrt(MountDot(up, up));
+    if (!std::isfinite(length) || length < 0.001f) up = C3Vector(0.0f, 0.0f, 1.0f);
+    else up = up * (1.0f / length);
+
+    C3Vector right = camera.Right();
+    right = right - forward * MountDot(right, forward) - up * MountDot(right, up);
+    length = std::sqrt(MountDot(right, right));
+    if (!std::isfinite(length) || length < 0.001f) {
+        right = C3Vector(-forward.y, forward.x, 0.0f);
+        length = std::sqrt(MountDot(right, right));
+    }
+    if (length < 0.001f) return C3Vector(0.0f, 0.0f, 0.0f);
+    right = right * (1.0f / length);
+
+    const float along = MountDot(lag, forward);
+    const float side = MountDot(lag, right);
+    const float vertical = flying ? MountDot(lag, up) : 0.0f;
+    const float maxSide = std::max(0.0f, profile.maximumDrift);
+    const float maxAlong = along < 0.0f ? maxSide + profile.forwardDrift : maxSide;
+    const float safeAlong = MountCameraPolicy::Clamp(along, -maxAlong, maxSide);
+    const float safeSide = MountCameraPolicy::Clamp(side, -maxSide, maxSide);
+    const float safeVertical = flying
+        ? MountCameraPolicy::Clamp(vertical, -profile.verticalDrift, profile.verticalDrift)
+        : 0.0f;
+
+    float ellipse = 0.0f;
+    if (maxAlong > 0.0f) ellipse += safeAlong * safeAlong / (maxAlong * maxAlong);
+    if (maxSide > 0.0f) ellipse += safeSide * safeSide / (maxSide * maxSide);
+    if (flying && profile.verticalDrift > 0.0f)
+        ellipse += safeVertical * safeVertical / (profile.verticalDrift * profile.verticalDrift);
+    const float scale = ellipse > 1.0f ? 1.0f / std::sqrt(ellipse) : 1.0f;
+    return forward * (safeAlong * scale) + right * (safeSide * scale) + up * (safeVertical * scale);
+}
+
+static MountCameraPolicy::Profile MixMountProfile(float ground, float flying) {
+    const float total = ground + flying;
+    if (total <= 0.0001f) return MountCameraPolicy::Ground;
+    const float g = ground / total;
+    const float f = flying / total;
+    const auto& a = MountCameraPolicy::Ground;
+    const auto& b = MountCameraPolicy::Flying;
+    return {
+        a.horizontal * g + b.horizontal * f,
+        a.vertical * g + b.vertical * f,
+        a.fovDegrees * g + b.fovDegrees * f,
+        a.followMs * g + b.followMs * f,
+        a.settleMs * g + b.settleMs * f,
+        a.maximumDrift * g + b.maximumDrift * f,
+        a.forwardDrift * g + b.forwardDrift * f,
+        a.verticalDrift * g + b.verticalDrift * f,
+        a.movingFovDegrees * g + b.movingFovDegrees * f,
+        a.movingFovEaseMs * g + b.movingFovEaseMs * f,
+        a.turnDeadzone * g + b.turnDeadzone * f,
+        a.turnIntensity * g + b.turnIntensity * f,
+        a.turnMaximum * g + b.turnMaximum * f,
+        a.turnEaseMs * g + b.turnEaseMs * f,
+        a.turnReleaseMs * g + b.turnReleaseMs * f
+    };
+}
+
+static void UpdateNativeMountCamera(CGCamera& camera, CGUnit_C* unit, uint32_t time, float yaw) {
+    if (!time || time == camera.m_actionMountStateTime) return;
+    const uint32_t elapsedMs = camera.m_actionMountStateTime ? time - camera.m_actionMountStateTime : 16;
+    camera.m_actionMountStateTime = time;
+    const float rawDt = static_cast<float>(elapsedMs) * 0.001f;
+    const float dt = MountCameraPolicy::Clamp(rawDt, 0.0f, 0.1f);
+
+    const uint64_t guid = unit && unit->m_obj ? unit->m_obj->m_guid.m_guid : 0;
+    const bool localTarget = unit && guid && unit->m_obj->m_guid == ClntObjMgrGetActivePlayer() &&
+        !camera.m_relativeTo && !camera.m_vehicleCamera;
+    if (guid != camera.m_actionMountStateGuid) {
+        camera.m_actionMountStateGuid = guid;
+        camera.m_actionMountFollowGuid = guid;
+        camera.m_actionMountFollowReady = false;
+        camera.m_actionMountPreviousPosition = C3Vector(0.0f, 0.0f, 0.0f);
+        camera.m_actionMountFollowLag = C3Vector(0.0f, 0.0f, 0.0f);
+        camera.m_actionMountTurningLean.Reset();
+        camera.m_actionMountFlightBank.Reset();
+    }
+
+    const bool mounted = localTarget && camera.m_distance > 0.5f && !CGBarberShop::m_barberShopEnabled &&
+        unit->IsMounted() && unit->m_mountModel && !unit->m_vehicle &&
+        !(unit->m_movement->m_flags & MOVEMENTFLAG_SWIMMING);
+    const bool flying = mounted && (unit->m_movement->m_flags & MOVEMENTFLAG_FLYING) && !unit->IsOnFlyingSpline();
+    const bool groundTarget = mounted && !flying && ActionCamera::shoulderEnabled && ActionCamera::groundMountEnabled;
+    const bool flyingTarget = flying && ActionCamera::shoulderEnabled && ActionCamera::flyingMountEnabled;
+
+    camera.m_actionMountGroundBlend = MountCameraPolicy::Blend(camera.m_actionMountGroundBlend,
+        groundTarget ? 1.0f : 0.0f, dt, MountCameraPolicy::MountTransitionMs);
+    camera.m_actionMountFlyingBlend = MountCameraPolicy::Blend(camera.m_actionMountFlyingBlend,
+        flyingTarget ? 1.0f : 0.0f, dt, MountCameraPolicy::MountTransitionMs);
+    const float mountBlend = MountCameraPolicy::Clamp(
+        camera.m_actionMountGroundBlend + camera.m_actionMountFlyingBlend, 0.0f, 1.0f);
+    const auto profile = MixMountProfile(camera.m_actionMountGroundBlend, camera.m_actionMountFlyingBlend);
+    camera.m_actionMountVerticalOffset =
+        camera.m_actionMountGroundBlend * MountCameraPolicy::Ground.vertical +
+        camera.m_actionMountFlyingBlend * MountCameraPolicy::Flying.vertical;
+
+    const float baseFov = camera.m_fov + camera.m_targetFov;
+    const float targetFov = baseFov + (profile.fovDegrees * 0.01745329252f - baseFov) * mountBlend;
+    camera.m_actionMountFovOffset = targetFov - baseFov;
+
+    const float speed = mounted ? std::fabs(unit->m_movement->m_currentSpeed) : 0.0f;
+    const float targetSpeedFov = speed > 0.5f
+        ? (camera.m_actionMountGroundBlend * MountCameraPolicy::Ground.movingFovDegrees +
+            camera.m_actionMountFlyingBlend * MountCameraPolicy::Flying.movingFovDegrees) * 0.01745329252f
+        : 0.0f;
+    if (dt > 0.0f) {
+        const float riseMs = camera.m_actionMountFlyingBlend > camera.m_actionMountGroundBlend
+            ? MountCameraPolicy::Flying.movingFovEaseMs : MountCameraPolicy::Ground.movingFovEaseMs;
+        const float tau = targetSpeedFov > camera.m_actionMountSpeedFov ? riseMs / 3000.0f : 0.3f;
+        camera.m_actionMountSpeedFov += (targetSpeedFov - camera.m_actionMountSpeedFov) *
+            (tau > 0.0f ? 1.0f - std::exp(-dt / tau) : 1.0f);
+    }
+
+    const C3Vector position = localTarget ? unit->GetPosition() : C3Vector(0.0f, 0.0f, 0.0f);
+    if (localTarget && mountBlend > 0.001f) {
+        if (!camera.m_actionMountFollowReady || camera.m_actionMountFollowGuid != guid) {
+            camera.m_actionMountPreviousPosition = position;
+            camera.m_actionMountFollowLag = C3Vector(0.0f, 0.0f, 0.0f);
+            camera.m_actionMountFollowReady = true;
+            camera.m_actionMountFollowGuid = guid;
+        } else if (dt > 0.0f) {
+            C3Vector movement = position - camera.m_actionMountPreviousPosition;
+            camera.m_actionMountPreviousPosition = position;
+            const float travelled = std::sqrt(MountDot(movement, movement));
+            if (!std::isfinite(travelled) || travelled > 10.0f || rawDt <= 0.0f || rawDt > 0.25f) {
+                camera.m_actionMountFollowLag = C3Vector(0.0f, 0.0f, 0.0f);
+            } else {
+                const float duration = travelled > 0.0005f ? profile.followMs : profile.settleMs;
+                const float retain = duration > 0.0f ? std::exp(-dt * 1000.0f / duration) : 0.0f;
+                camera.m_actionMountFollowLag = (camera.m_actionMountFollowLag - movement) * retain;
+                camera.m_actionMountFollowLag = ClampMountFollow(camera.m_actionMountFollowLag,
+                    camera, profile, camera.m_actionMountFlyingBlend > camera.m_actionMountGroundBlend);
+            }
+        }
+    } else {
+        camera.m_actionMountFollowReady = false;
+        camera.m_actionMountFollowLag = C3Vector(0.0f, 0.0f, 0.0f);
+    }
+
+    const bool leanEligible = mounted && mountBlend > 0.001f && speed > 0.5f && rawDt <= 0.1f;
+    camera.m_actionMountTurningLean.Step(yaw, leanEligible, dt, profile);
+    const uint32_t movementFlags = mounted ? unit->m_movement->m_flags : 0;
+    const int side = (movementFlags & MOVEMENTFLAG_STRAFE_RIGHT ? 1 : 0) -
+        (movementFlags & MOVEMENTFLAG_STRAFE_LEFT ? 1 : 0);
+    camera.m_actionMountFlightBank.Step(side, flyingTarget, dt);
+    camera.m_actionMountPresentationRoll = MountCameraPolicy::Clamp(
+        camera.m_actionMountTurningLean.value + camera.m_actionMountFlightBank.value, -40.0f, 40.0f);
+}
+
 // VERIFY: ac24e033 manual
 // OFFSET: 0x00606F90
 void CGCamera::CalcTargetCamera(CGObject_C* target, uint32_t time) {
@@ -2405,6 +2574,7 @@ void CGCamera::CalcTargetCamera(CGObject_C* target, uint32_t time) {
     float facingDistance;
     float facingRoll;
     this->UpdateTargetFacing(target, facingYaw, facingDistance, facingRoll);
+    UpdateNativeMountCamera(*this, unit, time, facingYaw);
 
     C3Vector offset = C3Vector(0.0f, 0.0f, 0.0f);
 
@@ -2531,6 +2701,73 @@ void CGCamera::CalcTargetCamera(CGObject_C* target, uint32_t time) {
 
     if (fabsf(this->m_targetOffset) >= 0.001f) {
         this->m_facing.RotateAroundY(this->m_targetOffset);
+    }
+
+    const uint32_t shoulderElapsed = time - this->m_actionCameraOffsetTime;
+    this->m_actionCameraOffsetTime = time;
+    const bool flyingMount = unit && unit->IsMounted() &&
+        (unit->m_movement->m_flags & MOVEMENTFLAG_FLYING) && !unit->IsOnFlyingSpline();
+    bool playerVehicle = false;
+    if (ActionCamera::shoulderEnabled && ActionCamera::vehicleEnabled && this->m_vehicleCamera) {
+        const auto* player = ClntObjMgrGetActivePlayerObj();
+        playerVehicle = player && player->m_vehicleCamera == this->m_vehicleCamera &&
+            (!this->m_relativeTo || ClntObjMgrObjectPtr(this->m_relativeTo, TYPEMASK_OBJECT, __FILE__, __LINE__));
+    }
+    const bool playerChase = unit && target->m_obj->m_guid == ClntObjMgrGetActivePlayer() &&
+        !this->m_relativeTo && !this->m_vehicleCamera &&
+        ((!flying && !onFlyingSpline) || flyingMount) && !uncontrolled;
+    if (ActionCamera::shoulderEnabled && distance > 0.5f && (playerChase || playerVehicle) &&
+        !(this->m_state & 0x8) && !CGBarberShop::m_barberShopEnabled && !swimming) {
+        float desired = ActionCamera::shoulderOffset;
+        if (playerVehicle) {
+            desired = ActionCamera::vehicleOffset;
+        } else if (flyingMount) {
+            desired = this->m_actionMountFlyingBlend > 0.001f
+                ? this->m_actionMountFlyingBlend * (MountCameraPolicy::Flying.horizontal +
+                    ActionCamera::flyingMountOffset - 0.75f)
+                : 0.0f;
+        } else if (unit->IsMounted()) {
+            desired = this->m_actionMountGroundBlend > 0.001f
+                ? this->m_actionMountGroundBlend * (MountCameraPolicy::Ground.horizontal +
+                    ActionCamera::groundMountOffset - 0.75f)
+                : 0.0f;
+        } else {
+            bool dialogue = false;
+            if (ActionCamera::dialogueEnabled) {
+                if (lua_State* state = FrameScript_GetContext()) {
+                    lua_pushliteral(state, "AetheriaActionCameraDialogueOpen");
+                    lua_rawget(state, LUA_GLOBALSINDEX);
+                    dialogue = lua_isboolean(state, -1) && lua_toboolean(state, -1);
+                    lua_pop(state, 1);
+                }
+            }
+            if (dialogue) {
+                desired = ActionCamera::dialogueOffset;
+            } else if (ActionCamera::combatEnabled && unit->IsInCombat()) {
+                desired = ActionCamera::combatOffset;
+            }
+        }
+        const float blend = 1.0f - std::exp(-static_cast<float>(shoulderElapsed) / 120.0f);
+        this->m_actionCameraOffset += (desired - this->m_actionCameraOffset) * blend;
+        const float shoulderOffset = this->m_actionCameraOffset;
+        const C3Vector mountOffset = this->Up() * this->m_actionMountVerticalOffset +
+            this->m_actionMountFollowLag * MountCameraPolicy::Clamp(
+                this->m_actionMountGroundBlend + this->m_actionMountFlyingBlend, 0.0f, 1.0f);
+        const C3Vector offset = this->Right() * shoulderOffset + mountOffset;
+        if (fabsf(shoulderOffset) > 0.001f || MountDot(mountOffset, mountOffset) > 0.000001f) {
+            const C3Vector shifted = this->m_position + offset;
+            C3Vector hit;
+            float fraction = 1.0f;
+            const uint32_t flags = GetCollisionQueryFlags();
+            if (!World::Intersect(this->m_position, shifted, &hit, &fraction, flags, nullptr)) {
+                fraction = 1.0f;
+                if (!World::Intersect(cameraTarget, shifted, &hit, &fraction, flags, nullptr)) {
+                    this->m_position = shifted;
+                }
+            }
+        }
+    } else {
+        this->m_actionCameraOffset = 0.0f;
     }
 
     if (this->m_distance - distance > 0.11111111f) {

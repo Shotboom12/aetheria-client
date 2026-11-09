@@ -1,4 +1,6 @@
 #include "WoW/Source/WorldClient/HD/HdForever.h"
+#include "WoW/Source/WorldClient/HD/HdTime.h"
+#include "WoW/Source/WorldClient/HD/HdDayNightMath.h"
 #include <cstdint>
 #include "Engine/Source/Tempest/CImVector.h"
 #include "Engine/Source/Tempest/CMath.h"
@@ -10,43 +12,13 @@
 
 // VERIFY: 7c5384b3 manual
 // OFFSET: 0x007EAE70
-static void GetBandTimeRange(const int32_t* times, int32_t count, int32_t time, int32_t& index, float& t, int32_t& next) {
-    next = 0;
-    t = 0.0f;
-    index = 0;
-
-    if (count <= 0) {
-        return;
-    }
-
-    do {
-        int32_t start = times[index];
-        next = (index + 1) % count;
-        int32_t end = times[next];
-
-        if (end > start) {
-            if (time >= start && time <= end) {
-                t = static_cast<float>(time - start) / (end - start);
-                return;
-            }
-        } else if (time <= end || time >= start) {
-            end += 2880;
-
-            if (time < start) {
-                time += 2880;
-            }
-
-            t = static_cast<float>(time - start) / (end - start);
-            return;
-        }
-
-        index++;
-    } while (index < count);
+static void GetBandTimeRange(const int32_t* times, int32_t count, float time, int32_t& index, float& t, int32_t& next) {
+    HD::DayNightMath::Range(times,count,time,index,t,next,HD::DayNightSmoothingEnabled());
 }
 
 // VERIFY: ba90e0db manual
 // OFFSET: 0x007EB070
-static CImVector InterpolateIntBand(const LightIntBandRec& rec, int32_t time) {
+static CImVector InterpolateIntBand(const LightIntBandRec& rec, float time) {
     CImVector color;
 
     if (!rec.m_num) {
@@ -113,7 +85,7 @@ void InitLights(bool transform) {
 
 // VERIFY: b70039a6 auto
 // OFFSET: 0x007EBF30
-CImVector DayNight::LoadLightIntBand(int32_t time, const LightParamsRec* params, int32_t band) {
+CImVector DayNight::LoadLightIntBand(float time, const LightParamsRec* params, int32_t band) {
     // HD: hdForever / hdForeverLight cvars: Forever's colour, the 3.3.5 one, or a mix of both
     CImVector forever;
     float weight = HD::ForeverIntBand(params, band, time, &forever) ? HD::ForeverBandWeight(band) : 0.0f;
@@ -132,7 +104,7 @@ CImVector DayNight::LoadLightIntBand(int32_t time, const LightParamsRec* params,
 
 // VERIFY: 95c2a7e6 auto
 // OFFSET: 0x007EAEF0
-float DayNight::InterpFloatBand(const LightFloatBandRec* rec, int32_t now, int32_t bandIndex) {
+float DayNight::InterpFloatBand(const LightFloatBandRec* rec, float now, int32_t bandIndex) {
     if (!rec->m_num) {
         return 0.0f;
     }

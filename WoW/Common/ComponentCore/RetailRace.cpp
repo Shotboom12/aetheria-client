@@ -1,8 +1,39 @@
+#include "Engine/Source/Base/CDataStore.h"
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "WoW/Source/Glue/CGlueMgr.h"
 #include "Engine/Source/Retail/RetailLookWire.h"
+#include "Engine/Source/Retail/StartZoneWire.h"
 #include "Engine/Source/Retail/BodyShape.h"
 #include "WoW/Common/ComponentCore/RetailRace.h"
+
+namespace
+{
+    uint8_t g_createStartZone = CharacterStartZone::RaceDefault;
+}
+
+bool CharacterStartZoneSet(uint8_t zone)
+{
+    if (!CharacterStartZone::Selectable(zone))
+        return false;
+    g_createStartZone = zone;
+    return true;
+}
+
+uint8_t CharacterStartZoneGet()
+{
+    return g_createStartZone;
+}
+
+void CharacterStartZoneCreateFooter(CDataStore* packet)
+{
+    if (!packet || g_createStartZone == CharacterStartZone::RaceDefault)
+        return;
+    uint8_t footer[CharacterStartZone::FooterSize];
+    CharacterStartZone::WriteFooter(footer, g_createStartZone);
+    for (uint8_t byte : footer)
+        packet->Put(byte);
+    g_createStartZone = CharacterStartZone::RaceDefault;
+}
 
 #if defined(WOWDECOMP_RETAIL_ASSETS)
 
@@ -1286,6 +1317,8 @@ bool RetailRaceMapped(uint32_t race) {
 float RetailRacePreviewScale(uint32_t race, uint32_t sex) {
     // These authored models use larger world units than the glue pedestal.
     // Venthyr need extra pedestal framing; world and creation retain their full height.
+    // Ethereal body models also exceed the character-select frame at unit scale.
+    if (Retail::Ethereal::Race(race)) return 0.55f;
     if (race == 61) return Retail::NativeHumanoidScale(race, sex) * .80f;
     if (Retail::NativeHumanoidRace(race)) return Retail::NativeHumanoidScale(race, sex);
     if (race == 56 || race == 57) return .55f;
@@ -1619,7 +1652,8 @@ bool RetailRaceGeometry(CCharacterComponent* character) {
     for (const uint16_t base : Retail::DefaultRaceGeosets(look.recipe.geosets))
         model->SetGeometryVisible(base, base, 1);
     // No Dracthyr Dragon choice selects its wing membranes (group 46, the wing texture sheet), so they are always shown.
-    if (FormsRace(retail) && EffectiveForm(character, retail) == app::FormDragon) {
+    // FormsRace() is false for Dracthyr (their forms are separate models), so test the dragon body directly too.
+    if (IsDracthyrDragon(character) || (FormsRace(retail) && EffectiveForm(character, retail) == app::FormDragon)) {
         bool chosen = false;
         for (const uint16_t geoset : look.recipe.geosets) chosen = chosen || geoset / 100 == 46;
         if (!chosen) model->SetGeometryVisible(4601, 4601, 1);
@@ -1822,6 +1856,22 @@ void RetailRaceBindOwner(CCharacterComponent* character, CGUnit_C* owner) {
         g_owners[character] = owner;
         FrameScript_RegisterFunction("EsteriaRetailAppearanceReceive", RetailRaceReceiveAppearance);
         if (owner->m_obj) {
+            const uint64_t guid = owner->m_obj->m_guid.m_guid;
+            // Character select restores these values from the roster. The active
+            // world model must start from that same saved state instead of the
+            // process-wide creator defaults.
+            if (owner->m_obj->m_guid == ClntObjMgrGetActivePlayer()
+                && BodyShape::Edited().model != character->m_data.m_model) {
+                const BodyShape::Values* savedShape = BodyShape::RosterFor(guid);
+                BodyShape::Local() = savedShape ? *savedShape : BodyShape::Values{};
+            }
+
+            // Seed the local in-world component from the same roster payload used
+            // by character select. A live appearance message below remains authoritative.
+            const std::string savedAppearance = EsteriaAppearance::RosterRetailAppearance(guid);
+            if (!savedAppearance.empty())
+                RetailRaceApplyAppearance(character, savedAppearance.data(), savedAppearance.size());
+
             auto found = g_networkAppearance.find(owner->m_obj->m_guid.m_guid);
             if (found != g_networkAppearance.end()) RetailRaceApplyAppearance(character, found->second.data(), found->second.size());
         }

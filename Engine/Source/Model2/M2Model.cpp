@@ -77,6 +77,7 @@ struct AttachmentFrame {
     uint32_t bone;
     C3Vector position;
     float scale;
+    C3Vector rotation;
 };
 std::map<const CM2Model*, AttachmentFrame> s_attachmentFrames;
 
@@ -105,6 +106,10 @@ void ApplyAttachmentFrame(CM2Model* child, CM2Model* parent, C44Matrix& matrix) 
     }
     matrix = parent->m_boneMatrices[frame.bone];
     matrix.Translate(frame.position);
+    constexpr float radians = 0.01745329252f;
+    matrix.RotateAroundX(frame.rotation.x * radians);
+    matrix.RotateAroundY(frame.rotation.y * radians);
+    matrix.RotateAroundZ(frame.rotation.z * radians);
     matrix.Scale(frame.scale);
 }
 
@@ -6016,6 +6021,9 @@ void CM2Model::AnimateMT(const C44Matrix* view, const C3Vector& diffuse, const C
 
     this->m_fFlags &= ~0x400u;
 
+    if (this->m_applyFootPlacement && this->m_footPlacement.frame == this->m_scene->m_frameStamp)
+        this->m_applyFootPlacement(*this);
+
     if (data->m_particles.m_count) {
         this->AnimateParticlesMT();
     }
@@ -8259,15 +8267,17 @@ bool CM2Model::CopyAttachmentFrameFrom(const CM2Model* source) {
         if (found == s_attachmentFrames.end()) return false;
         frame = found->second;
     }
-    return this->SetAttachmentFrame(frame.bone, frame.position, frame.scale);
+    return this->SetAttachmentFrame(frame.bone, frame.position, frame.scale, frame.rotation);
 }
 
-bool CM2Model::SetAttachmentFrame(uint32_t bone, const C3Vector& position, float scale) {
+bool CM2Model::SetAttachmentFrame(uint32_t bone, const C3Vector& position, float scale, const C3Vector& rotation) {
     CM2Model* parent = this->m_attachParent;
     if (!parent || !(parent->m_fFlags & 1) || this->m_attachmentIndex == 0xffff ||
         !this->m_shared || !parent->m_shared || !parent->m_shared->m_data ||
         bone >= parent->m_shared->m_data->m_bones.m_count ||
-        !std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)||!std::isfinite(scale)||scale<=0.f) return false;
+        !std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+        !std::isfinite(rotation.x) || !std::isfinite(rotation.y) || !std::isfinite(rotation.z) ||
+        !std::isfinite(scale) || scale <= 0.f) return false;
     std::lock_guard<std::mutex> lock(s_skinParentMutex);
     const M2Data* data = parent->m_shared->m_data;
     const auto found = s_attachmentFrames.find(this);
@@ -8275,9 +8285,10 @@ bool CM2Model::SetAttachmentFrame(uint32_t bone, const C3Vector& position, float
         const auto& old = found->second;
         if (old.parent == parent && old.childShared == this->m_shared && old.parentData == data &&
             old.bone == bone && old.position.x == position.x && old.position.y == position.y &&
-            old.position.z == position.z&&old.scale==scale) return false;
+            old.position.z == position.z && old.scale == scale && old.rotation.x == rotation.x &&
+            old.rotation.y == rotation.y && old.rotation.z == rotation.z) return false;
     }
-    s_attachmentFrames.insert_or_assign(this, AttachmentFrame{parent, this->m_shared, data, bone, position,scale});
+    s_attachmentFrames.insert_or_assign(this, AttachmentFrame{parent, this->m_shared, data, bone, position, scale, rotation});
     // The replacement socket carries the full correction; discard a previous local socket shift.
     this->m_worldTransform.Identity();
     this->m_fFlags |= 0x8000;

@@ -36,11 +36,11 @@ class CShadowQuery {
     static uint8_t s_stamp;
     static void Clear(CGxTex* target, CGxTex* depthTarget, float* rect);
     static void GetSize(CShadowCacheQueryData& data, int32_t band, float* minSize, float* maxSize);
-    static void FrustumCallback(CFrustum& frustum, C44Matrix& matrix, const C3Vector& direction, CShadowCacheQueryData& data, int32_t band);
+    static void FrustumCallback(CFrustum& frustum, C44Matrix& matrix, const C3Vector& direction, CShadowCacheQueryData& data, int32_t band, const C3Vector& sun);
     static void Initialize();
-    static void MatrixCallback(C3Vector& center, float radius, C44Matrix& matrix, C3Vector& direction, int32_t band);
+    static void MatrixCallback(C3Vector& center, float radius, C44Matrix& matrix, C3Vector& direction, int32_t band, const C3Vector& sun);
     static int32_t QueryCallback(CShadowCacheQueryData& data, uint32_t frame);
-    static int32_t RenderCallback(CShadowCacheQueryData& data, int32_t band, CGxTex* target, CGxTex* colorTarget, C3Vector& direction);
+    static int32_t RenderCallback(CShadowCacheQueryData& data, int32_t band, CGxTex* target, CGxTex* colorTarget, C3Vector& direction, const C3Vector& sun);
 };
 
 #endif

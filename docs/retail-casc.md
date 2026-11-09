@@ -55,6 +55,13 @@ from `http://us.patch.battle.net:1119/wow/versions`. Use the `BuildConfig` colum
 the desired region. Changing a build requires a client restart. Each online build
 uses a separate `path/<product>-<build>/` cache directory.
 
+The FileDataID asset cache uses `cache_max_mib` as a hard size budget. When a new
+asset would exceed it, the cache removes its oldest written `.rca` or `-table.rca`
+entries until the new file fits. It leaves unrelated files and symbolic links
+alone. If those cache entries are insufficient to make room, the valid downloaded
+asset is still used for the current request and simply is not cached. Name-addressed
+decoded entries use a separate cache and are not covered by this budget.
+
 The Wrath client's `Data/Retail/Cache` directory keeps acquired assets with the
 game. Do not nest it beneath modern CASC installations or other caches with storage
 manifests: CascLib searches ancestor directories. Encrypted files need

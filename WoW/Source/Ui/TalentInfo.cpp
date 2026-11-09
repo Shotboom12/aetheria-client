@@ -859,6 +859,10 @@ void CGTalentGroup_C::AddPreviewTalentPoints(uint32_t tabIndex, const TalentRec*
     if (!item) {
         item = this->m_items.New(talentId, key, 0, 0);
         item->m_talentId = talentId;
+        // -1 means "not learned" (ValidatePreviewTalentPoints and GetTalentInfo read it that way). A zeroed item
+        // reads as rank 1 already owned, so the first point went to the server as rank 2 and was refused.
+        item->m_rank = -1;
+        item->m_previewRank = -1;
         this->m_tabs.m_data[tabIndex].AddItem(talent, item);
     }
 

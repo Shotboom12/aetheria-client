@@ -10,6 +10,7 @@
 #include "Engine/Source/Base/Handle.h"
 #include "WoW/Source/Object/WGUID.h"
 #include "WoW/Source/UIUtil/CSimpleCamera.h"
+#include "WoW/Source/UIUtil/MountCameraPolicy.h"
 #include "WoW/Source/UIUtil/Types.h"
 #include "Engine/Source/Services/CameraInt.h"
 
@@ -182,6 +183,22 @@ class CGCamera : public CSimpleCamera {
     /* 0314 */ float m_preTelescopeDistance;
     /* 0318 */ float m_telescopePitchOffset;
     /* 031C */ CVehicleCamera_C* m_vehicleCamera;
+    float m_actionCameraOffset = 0.0f;
+    uint32_t m_actionCameraOffsetTime = 0;
+    float m_actionMountGroundBlend = 0.0f;
+    float m_actionMountFlyingBlend = 0.0f;
+    float m_actionMountVerticalOffset = 0.0f;
+    float m_actionMountFovOffset = 0.0f;
+    float m_actionMountSpeedFov = 0.0f;
+    float m_actionMountPresentationRoll = 0.0f;
+    uint32_t m_actionMountStateTime = 0;
+    uint64_t m_actionMountStateGuid = 0;
+    uint64_t m_actionMountFollowGuid = 0;
+    C3Vector m_actionMountPreviousPosition{};
+    C3Vector m_actionMountFollowLag{};
+    bool m_actionMountFollowReady = false;
+    MountCameraPolicy::TurningLean m_actionMountTurningLean{};
+    MountCameraPolicy::FlightBank m_actionMountFlightBank{};
 
     float FOV() const override;
     C3Vector Forward() const override;

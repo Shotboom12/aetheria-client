@@ -3,7 +3,8 @@
 -- ============================================================================
 CHARACTER_FACING_INCREMENT = 2;
 MAX_RACES = 129;
-MAX_CLASSES_PER_RACE = 10;
+-- Aetheria Hero class capacity v1
+MAX_CLASSES_PER_RACE = 11;
 
 function CharacterCreate_IsMaleOnlyRace(race)
     return race == 63 or race == 64 or race == 69 or race == 70 or race == 75 or race == 76
@@ -593,6 +594,8 @@ local function GetValidRacesForClass(classIndex)
     return allianceRaces, hordeRaces
 end
 
+-- Aetheria Hero class tooltip v1
+CLASS_INFO_HERO0 = CLASS_INFO_HERO0 or "Choose the classless path and shape a flexible role with abilities from the Conquest of Azeroth library."
 local function UpdateClassTooltip(button)
     local tooltip = GetOrCreateClassTooltip(button)
     local classIndex = button:GetID()
@@ -601,11 +604,15 @@ local function UpdateClassTooltip(button)
     local info = type(legacy) == "table" and legacy or {}
     local title = button.name or info.Name or token
     local description = GetFlavorText("CLASS_"..token, GetSelectedSex()) or info.Description or ""
+    if token == "HERO" and description == "" then
+        description = "Build a classless character with abilities from the Conquest of Azeroth library, and shape a role that suits your playstyle."
+    end
     local roleNames = {
         WARRIOR = "Melee Damage, Tank", PALADIN = "Melee Damage, Tank, Healer",
         HUNTER = "Ranged Damage", ROGUE = "Melee Damage", PRIEST = "Ranged Damage, Healer",
         DEATHKNIGHT = "Melee Damage, Tank", SHAMAN = "Melee Damage, Ranged Damage, Healer",
         MAGE = "Ranged Damage", WARLOCK = "Ranged Damage", DRUID = "Damage, Tank, Healer",
+        HERO = "Melee Damage, Ranged Damage, Tank, Healer",
     }
     local roles = info.Roles or roleNames[token] or ""
     if roles ~= "" then description = description.."\n\n"..roles end
@@ -2781,6 +2788,11 @@ local function EA_ENSURE_ROWS()
     return CharacterCustomizationButtonFrame1 ~= nil
 end
 
+-- Retail option capacity v2 (45-option Dracthyr)
+local function EA_LIMIT()
+    if EA_IS_RETAIL() then return math.min(64, CycleCharCustomization("EA_COUNT", 1) or 29); end
+    return 29;
+end
 local function EA_REFRESH()
     if not EA_ENSURE_ROWS() then return; end
     if BodyShapePage_Active and BodyShapePage_Active() then
@@ -3198,7 +3210,39 @@ RACE_ICON_TCOORDS["CENTAURHORDE_FEMALE"]=RACE_ICON_TCOORDS["ORC_FEMALE"];
 -- supports. Flow: Appearance -> Next -> Body -> Accept. Values live in the client (SetBodyShape / GetBodyShape)
 -- and show on the creator preview model.
 -- Everything here is guarded: if anything fails the creator behaves exactly as before and a small note says why.
-local BS = { page = false, rows = {}, built = false, broken = nil, okayText = nil };
+local BS = { page = false, rows = {}, built = false, broken = nil, okayText = nil, presets = {}, presetSlot = 1 };
+local BS_PRESET_CVARS = { "aetheriaBodyShapePreset1", "aetheriaBodyShapePreset2", "aetheriaBodyShapePreset3" };
+
+local function BS_ReadPreset(slot)
+    local cvar = BS_PRESET_CVARS[slot];
+    if not cvar then return nil; end
+    local ok, stored = pcall(GetCVar, cvar);
+    if not ok or type(stored) ~= "string" or #stored == 0 or #stored > 4096 then return nil; end
+    if stored:sub(1, 4) ~= "BS1;" then return nil; end
+    local values = {};
+    for name, raw in stored:sub(5):gmatch("([^=;]+)=([^;]+)") do
+        local value = tonumber(raw);
+        if value and GetBodyShapeSupport(name) ~= false then values[name] = value; end
+    end
+    return next(values) and values or nil;
+end
+
+local function BS_WritePreset(slot, values)
+    local cvar = BS_PRESET_CVARS[slot];
+    if not cvar then return false; end
+    local fields = { "BS1" };
+    for _, row in ipairs(BS.rows) do
+        if values[row.name] and GetBodyShapeSupport(row.name) ~= false then
+            fields[#fields + 1] = row.name .. "=" .. string.format("%.6g", values[row.name]);
+        end
+    end
+    local stored = table.concat(fields, ";");
+    if #stored > 4096 then return false; end
+    local ok = pcall(SetCVar, cvar, stored);
+    if not ok then return false; end
+    local readOK, actual = pcall(GetCVar, cvar);
+    return readOK and actual == stored;
+end
 
 local function BS_Log(text)
     if BodyShapeLog then BodyShapeLog("lua: " .. tostring(text)); end
@@ -3220,6 +3264,10 @@ end
 
 function BodyShapePage_Active()
     return BS.page and BS_FlowAvailable();
+end
+
+function BodyShapePage_Follows()
+    return not BS.page and BS_FlowAvailable();
 end
 
 local function BS_Pretty(name)
@@ -3251,10 +3299,10 @@ local function BS_Install()
     note:SetTextColor(1, 0.6, 0.4);
     note:Hide();
 
-    local function MakeButton(name, text, width, x)
+    local function MakeButton(name, text, width, x, y)
         local button = CreateFrame("Button", name, panel);
         button:SetSize(width, 26);
-        button:SetPoint("TOP", CharacterCreateFrame, "TOP", x, -64);
+        button:SetPoint("TOP", CharacterCreateFrame, "TOP", x, y or -64);
         button:SetNormalFontObject(GlueFontNormalSmall);
         button:SetHighlightFontObject(GlueFontHighlightSmall);
         button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight");
@@ -3274,6 +3322,52 @@ local function BS_Install()
         PlaySound("gsCharacterCreationCancel");
         ResetBodyShape();
         if BS.ResetTriangle then BS.ResetTriangle(); end
+    end);
+
+    local savePreset = MakeButton("BodyShapeSavePresetButton", "Save Slot 1", 104, -110, -96);
+    local loadPreset = MakeButton("BodyShapeLoadPresetButton", "Load Slot 1", 104, 0, -96);
+    local nextPreset = MakeButton("BodyShapeNextPresetButton", "Next Slot", 104, 110, -96);
+    local copyCode = MakeButton("BodyShapeCopyCodeButton", "Copy Share Code", 136, -75, -128);
+    local pasteCode = MakeButton("BodyShapePasteCodeButton", "Paste Share Code", 136, 75, -128);
+    local function UpdatePresetLabels()
+        savePreset:SetText("Save Slot " .. BS.presetSlot);
+        loadPreset:SetText("Load Slot " .. BS.presetSlot);
+    end
+    savePreset:SetScript("OnClick", function()
+        local values = {};
+        for _, row in ipairs(BS.rows) do
+            if GetBodyShapeSupport(row.name) ~= false then values[row.name] = GetBodyShape(row.name); end
+        end
+        if not BS_WritePreset(BS.presetSlot, values) then
+            savePreset:SetText("Save failed");
+            return;
+        end
+        BS.presets[BS.presetSlot] = values;
+        savePreset:SetText("Saved!");
+        PlaySound("gsCharacterCreationLook");
+    end);
+    loadPreset:SetScript("OnClick", function()
+        local values = BS_ReadPreset(BS.presetSlot) or BS.presets[BS.presetSlot];
+        if not values then return; end
+        for name, value in pairs(values) do SetBodyShape(name, value); end
+        BS.presets[BS.presetSlot] = values;
+        PlaySound("gsCharacterCreationLook");
+    end);
+    nextPreset:SetScript("OnClick", function()
+        BS.presetSlot = BS.presetSlot % 3 + 1;
+        UpdatePresetLabels();
+    end);
+    copyCode:SetScript("OnClick", function()
+        if BodyShapeCopyCode and BodyShapeCopyCode() then
+            copyCode:SetText("Copied!");
+        else
+            copyCode:SetText("Copy failed");
+        end
+    end);
+    pasteCode:SetScript("OnClick", function()
+        local count = BodyShapePasteCode and BodyShapePasteCode() or 0;
+        pasteCode:SetText(count > 0 and ("Applied " .. count) or "No valid code");
+        if count > 0 then PlaySound("gsCharacterCreationLook"); end
     end);
 
     local columnTitle = {};
@@ -3490,7 +3584,7 @@ local function BS_Install()
             placed[row.group] = n + 1;
             row:ClearAllPoints();
             row:SetPoint(right and "TOPRIGHT" or "TOPLEFT", CharacterCreateFrame, right and "TOPRIGHT" or "TOPLEFT",
-                right and -55 or 55, -140 - (right and 0 or bodyTop) - n * (right and spacing or bodySpacing));
+                right and -55 or 55, -174 - (right and 0 or bodyTop) - n * (right and spacing or bodySpacing));
             Sync(row);
             row:Show();
         end
@@ -3514,6 +3608,13 @@ local function BS_Install()
     -- Accept becomes Next on the Appearance page; Back returns from the Body page before leaving customization.
     local okay = CharacterCreate_Okay;
     function CharacterCreate_Okay(...)
+        if StartZonePage_Open and StartZonePage_Open() then
+            return okay(...);
+        end
+        if BS_FlowAvailable() and BS.page and StartZonePage_Follows and StartZonePage_Follows() then
+            StartZonePage_Show();
+            return;
+        end
         if BS_FlowAvailable() and not BS.page then
             SetPage(true);
             return;
@@ -3554,6 +3655,11 @@ local function BS_Install()
     local function Tick(self)
 
         if CharCreateOkayButton and not BS.okayText then BS.okayText = CharCreateOkayButton:GetText(); end
+
+        if StartZonePage_Open and StartZonePage_Open() then
+            panel:Hide();
+            return;
+        end
 
         local status = BS_InPersonalization() and BS_Status() or nil;
         if status then note:SetText(status); note:Show(); else note:Hide(); end
@@ -4138,7 +4244,7 @@ local function BuildCard()
     card.description:SetWidth(340);
     card.description:SetJustifyH("LEFT");
     card.traits = {};
-    for i = 1, 4 do
+    for i = 1, 7 do
         local icon = card:CreateTexture(nil, "ARTWORK");
         icon:SetSize(18, 18);
         local name = Text(card, BODY_FONT, 12, TEXT);
@@ -4168,7 +4274,7 @@ local function UpdateCard()
     card.description:SetText(info and info.Description or "");
     local last = card.description;
     for i, trait in ipairs(card.traits) do
-        local spell = info and info["Spell_" .. i];
+        local spell = info and (info.KyrianRacials or i <= 4) and info["Spell_" .. i];
         if spell and spell.name and spell.name ~= "" then
             trait.icon:SetTexture("Interface\\Icons\\" .. (spell.icon or "INV_Misc_QuestionMark"));
             trait.icon:ClearAllPoints();
@@ -4246,6 +4352,7 @@ local function RaceTick()
     local classTop = (SK.gridBottom and SK.gridBottom.Horde or -300) - 35;
     SK.classTitle:ClearAllPoints();
     SK.classTitle:SetPoint("TOPRIGHT", CharacterCreateFrame, "TOPRIGHT", -EDGE_X, classTop);
+    local classColumns = 6;
     for index = 1, MAX_CLASSES_PER_RACE do
         local button = _G["CharacterCreateClassButton"..index];
         if button then
@@ -4257,7 +4364,7 @@ local function RaceTick()
                 if button[name] then button[name]:SetSize(48,48); end
             end
             button:SetPoint("TOPRIGHT", CharacterCreateFrame, "TOPRIGHT",
-                -EDGE_X - ((index-1)%5)*64, classTop-30-math.floor((index-1)/5)*62);
+                -EDGE_X - ((index-1)%classColumns)*64, classTop-30-math.floor((index-1)/classColumns)*62);
             -- Suppress every legacy square/atlas layer; use the same ring as the races.
             for _,suffix in ipairs({"Shadow","BevelEdge"}) do
                 local texture = _G[button:GetName()..suffix];
@@ -4463,77 +4570,242 @@ skinWaiter:SetScript("OnUpdate", function(self)
 end);
 end)();
 
--- XML compatibility: route the legacy feature buttons through the current native option controls.
-local heldFeatureDirection, heldFeatureElapsed
+-- Faction-restricted start-zone page, after Body sliders.
+(function()
+local SZ = { open = false, rows = {}, entries = {}, zone = 0, built = false, broken = nil };
+local INK = { 0.03, 0.04, 0.055 };
+local GOLD = { 0.91, 0.77, 0.42 };
+local GOLD_DIM = { 0.54, 0.43, 0.18 };
+local TEXT = { 0.88, 0.86, 0.80 };
+local MUTED = { 0.60, 0.59, 0.55 };
+local ZONES = {
+    { id = 1, faction = "ALLIANCE", name = "Northshire Valley", region = "Elwynn Forest" },
+    { id = 2, faction = "ALLIANCE", name = "Coldridge Valley", region = "Dun Morogh" },
+    { id = 3, faction = "ALLIANCE", name = "Shadowglen", region = "Teldrassil" },
+    { id = 4, faction = "ALLIANCE", name = "Ammen Vale", region = "Azuremyst Isle" },
+    { id = 5, faction = "HORDE", name = "Valley of Trials", region = "Durotar" },
+    { id = 6, faction = "HORDE", name = "Camp Narache", region = "Mulgore" },
+    { id = 7, faction = "HORDE", name = "Deathknell", region = "Tirisfal Glades" },
+    { id = 8, faction = "HORDE", name = "Sunstrider Isle", region = "Eversong Woods" },
+};
+local HOME = { [1] = 1, [3] = 2, [7] = 2, [4] = 3, [11] = 4, [2] = 5, [8] = 5,
+    [6] = 6, [5] = 7, [10] = 8 };
 
-function CharCreateSelectCustomizationType(id)
-    if type(id) ~= "number" or id < 1 or id > 64 then return end
-    CharacterCreateFrame.customizationType = id
-    CharacterCreate_UpdateHairCustomization()
-    local choice = _G["CharacterCustomizationButtonFrame"..id.."ChoiceButton"]
-    if choice and CharacterCustomization_OpenChoices then CharacterCustomization_OpenChoices(choice) end
+local function RaceFaction()
+    if not GetSelectedRace or not GetFactionForRace then return nil; end
+    local index = GetSelectedRace();
+    local _, faction = GetFactionForRace(index);
+    faction = string.upper(tostring(faction or ""));
+    if string.find(faction, "HORDE", 1, true) then return "HORDE"; end
+    if string.find(faction, "ALLIANCE", 1, true) then return "ALLIANCE"; end
+    return nil;
 end
 
-function CharCreatePreviewFrame_StopAnimating()
-    if CharCreatePreviewFrame then
-        CharCreatePreviewFrame.animating = nil
-        CharCreatePreviewFrame.queuedIndex = nil
+local function IsDeathKnight()
+    if not CharacterCreate.personalizationMode or not GetSelectedClass then return false; end
+    local _, class = GetSelectedClass();
+    return class == "DEATHKNIGHT";
+end
+
+local function Available()
+    return not SZ.broken and SZ.built and CharacterCreate.personalizationMode and CharCreateOkayButton:IsShown()
+        and type(SetCreateStartZone) == "function" and RaceFaction() ~= nil and not IsDeathKnight();
+end
+
+function StartZonePage_Open()
+    return SZ.open and Available();
+end
+
+function StartZonePage_Follows()
+    return not SZ.open and Available();
+end
+
+local function AddText(parent, text, size, color)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GlueFontHighlightSmall");
+    label:SetFont("Fonts\\FRIZQT__.TTF", size);
+    label:SetTextColor(color[1], color[2], color[3]);
+    label:SetText(text);
+    return label;
+end
+
+local function SetSelected(id)
+    if not SetCreateStartZone(id) then return; end
+    SZ.zone = id;
+    for _, row in ipairs(SZ.rows) do
+        local selected = row.entry and row.entry.id == id;
+        row:SetBackdropColor(INK[1], INK[2], INK[3], selected and 0.98 or 0.72);
+        row.title:SetTextColor(selected and GOLD[1] or TEXT[1], selected and GOLD[2] or TEXT[2], selected and GOLD[3] or TEXT[3]);
+        row.mark:SetText(selected and "CHOSEN" or "");
     end
-    heldFeatureDirection = nil
+    local entry = SZ.entries[1];
+    for _, candidate in ipairs(SZ.entries) do
+        if candidate.id == id then entry = candidate; break; end
+    end
+    SZ.detailTitle:SetText(string.upper(entry.name));
+    SZ.detailRegion:SetText(entry.region);
+    SZ.detailBody:SetText(entry.id == 0
+        and "This character begins at the normal starting location assigned to its race."
+        or "You begin here with the local opening quests and hearthstone. This option belongs to your faction.");
 end
 
-function CharCreate_ResetFeaturesDisplay()
-    -- The current creator uses option rows and a choice menu, replacing the donor's unfinished model strip.
-    if CharCreatePreviewFrame then CharCreatePreviewFrame:Hide() end
-    CharacterCreate_UpdateHairCustomization()
+local function Build()
+    local panel = CreateFrame("Frame", "StartZonePagePanel", CharacterCreateFrame);
+    panel:SetAllPoints(CharacterCreateFrame);
+    panel:SetFrameStrata("DIALOG");
+    panel:SetFrameLevel(CharacterCreateFrame:GetFrameLevel() + 6);
+    panel:EnableMouse(true);
+    panel:Hide();
+    panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" });
+    panel:SetBackdropColor(INK[1], INK[2], INK[3], 0.94);
+    SZ.panel = panel;
+
+    local title = AddText(panel, "CHOOSE YOUR BEGINNING", 18, GOLD);
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 55, -82);
+    local subtitle = AddText(panel, "Only starting areas of your faction are available.", 11, MUTED);
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8);
+
+    for index = 1, 5 do
+        local row = CreateFrame("Button", "StartZonePageRow" .. index, panel);
+        row:SetSize(340, 46);
+        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 55, -132 - (index - 1) * 54);
+        row:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 8, edgeSize = 10, insets = { left = 2, right = 2, top = 2, bottom = 2 } });
+        row:SetBackdropColor(INK[1], INK[2], INK[3], 0.72);
+        row:SetBackdropBorderColor(GOLD_DIM[1], GOLD_DIM[2], GOLD_DIM[3], 0.8);
+        row.title = AddText(row, "", 13, TEXT);
+        row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 12, -8);
+        row.region = AddText(row, "", 10, MUTED);
+        row.region:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -3);
+        row.mark = AddText(row, "", 10, GOLD);
+        row.mark:SetPoint("RIGHT", row, "RIGHT", -12, 0);
+        row:SetScript("OnClick", function(self) SetSelected(self.entry.id); end);
+        SZ.rows[index] = row;
+    end
+
+    local detail = CreateFrame("Frame", "StartZonePageDetail", panel);
+    detail:SetSize(340, 300);
+    detail:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -55, -132);
+    detail:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } });
+    detail:SetBackdropColor(INK[1], INK[2], INK[3], 0.75);
+    detail:SetBackdropBorderColor(GOLD_DIM[1], GOLD_DIM[2], GOLD_DIM[3], 0.8);
+    SZ.detailTitle = AddText(detail, "", 18, GOLD);
+    SZ.detailTitle:SetPoint("TOPLEFT", detail, "TOPLEFT", 18, -20);
+    SZ.detailRegion = AddText(detail, "", 12, GOLD_DIM);
+    SZ.detailRegion:SetPoint("TOPLEFT", SZ.detailTitle, "BOTTOMLEFT", 0, -8);
+    SZ.detailBody = AddText(detail, "", 12, TEXT);
+    SZ.detailBody:SetWidth(300);
+    SZ.detailBody:SetJustifyH("LEFT");
+    SZ.detailBody:SetPoint("TOPLEFT", SZ.detailRegion, "BOTTOMLEFT", 0, -20);
 end
 
-function CharCreate_PrepPreviewModels()
-    CharCreate_ResetFeaturesDisplay()
+local function SetOpen(open)
+    if SZ.open == open then return; end
+    SZ.open = open;
+    if not open then
+        SZ.panel:Hide();
+        return;
+    end
+
+    local faction = RaceFaction();
+    SZ.entries = { { id = 0, name = "Race's usual starting area", region = "Your race's homeland", faction = faction } };
+    for _, zone in ipairs(ZONES) do
+        if zone.faction == faction then SZ.entries[#SZ.entries + 1] = zone; end
+    end
+    for index, row in ipairs(SZ.rows) do
+        local entry = SZ.entries[index];
+        row.entry = entry;
+        if entry then
+            row.title:SetText(entry.name);
+            row.region:SetText(entry.region);
+            row:Show();
+        else
+            row:Hide();
+        end
+    end
+
+    local race = CharacterCreate.selectedRaceID or 0;
+    local selected = GetCreateStartZone and GetCreateStartZone() or 0;
+    if selected ~= 0 and (not SZ.entries[1] or not ZONES[selected] or ZONES[selected].faction ~= faction) then
+        selected = 0;
+    end
+    if selected == 0 and HOME[race] and ZONES[HOME[race]].faction == faction then selected = HOME[race]; end
+    SZ.panel:Show();
+    SetSelected(selected);
+    if CharCreateOkayButton:GetText() ~= "Accept" then CharCreateOkayButton:SetText("Accept"); end
 end
 
-function CharCreate_ChangeFeatureVariation(delta)
-    local id = CharacterCreateFrame and CharacterCreateFrame.customizationType or 1
-    if delta and delta < 0 then CharacterCustomization_Left(id)
-    elseif delta and delta > 0 then CharacterCustomization_Right(id) end
+function StartZonePage_Show()
+    if not Available() then return false; end
+    SetOpen(true);
+    return true;
 end
 
-function CharacterCreateWhileMouseDown_OnMouseDown(direction)
-    heldFeatureDirection = direction
-    heldFeatureElapsed = -0.35
-end
+local function Hook()
+    local okay = CharacterCreate_Okay;
+    function CharacterCreate_Okay(...)
+        if SZ.open then
+            SetCreateStartZone(SZ.zone);
+            return okay(...);
+        end
+        if BodyShapePage_Follows and BodyShapePage_Follows() then
+            return okay(...);
+        end
+        if StartZonePage_Follows() then
+            StartZonePage_Show();
+            return;
+        end
+        return okay(...);
+    end
 
-function CharacterCreateWhileMouseDown_OnMouseUp()
-    heldFeatureDirection = nil
-    heldFeatureElapsed = nil
-end
+    local back = CharacterCreate_Back;
+    function CharacterCreate_Back(...)
+        if SZ.open then SetOpen(false); return; end
+        return back(...);
+    end
 
-function CharacterCreateWhileMouseDown_Update(elapsed)
-    if not heldFeatureDirection then return end
-    heldFeatureElapsed = (heldFeatureElapsed or 0) + (elapsed or 0)
-    if heldFeatureElapsed >= 0.12 then
-        heldFeatureElapsed = 0
-        CharCreate_ChangeFeatureVariation(heldFeatureDirection)
+    local toggle = CharacterCreate_TogglePersonalization;
+    function CharacterCreate_TogglePersonalization(...)
+        if SZ.open then SetOpen(false); return; end
+        return toggle(...);
+    end
+
+    local onShow = CharacterCreate_OnShow;
+    function CharacterCreate_OnShow(...)
+        SZ.open = false;
+        SZ.zone = 0;
+        if SetCreateStartZone then SetCreateStartZone(0); end
+        if SZ.panel then SZ.panel:Hide(); end
+        return onShow(...);
     end
 end
 
-local creatorFrameUpdate = CharacterCreateFrame_OnUpdate
-function CharacterCreateFrame_OnUpdate(self, elapsed)
-    creatorFrameUpdate(self, elapsed)
-    CharacterCreateWhileMouseDown_Update(elapsed)
+local function Install()
+    if type(SetCreateStartZone) ~= "function" then return; end
+    Build();
+    Hook();
+    SZ.built = true;
+    local driver = CreateFrame("Frame");
+    driver:SetScript("OnUpdate", function()
+        if not SZ.open then return; end
+        local ok, err = pcall(function()
+            if not Available() then SetOpen(false); return; end
+            SZ.panel:Show();
+        end);
+        if not ok then
+            SZ.broken = tostring(err);
+            SZ.open = false;
+            if SZ.panel then SZ.panel:Hide(); end
+            if SetCreateStartZone then SetCreateStartZone(0); end
+        end
+    end);
 end
 
-function CharacterCreate_OnEvent(event, result, name)
-    if event == "RANDOM_CHARACTER_NAME_RESULT" then
-        CharacterCreate_SetNameFields(result == 0 and GetRandomName() or (name or ""))
-        if CharacterCreateRandomName then CharacterCreateRandomName:Enable() end
-        if CharacterCreateRandomLastName then CharacterCreateRandomLastName:Enable() end
-        if CharCreateOkayButton then CharCreateOkayButton:Enable() end
-        PlaySound("gsCharacterCreationLook")
-    elseif event == "GLUE_UPDATE_EXPANSION_LEVEL" and CharacterCreateFrame and CharacterCreateFrame:IsVisible() then
-        CharacterCreateEnumerateRaces(GetAvailableRaces())
-        CharacterCreateEnumerateClasses(GetAvailableClasses())
-        SetCharacterRace(GetSelectedRace())
-    end
-end
-
+local waiter = CreateFrame("Frame");
+waiter:SetScript("OnUpdate", function(self)
+    if not (CharacterCreate and CharacterCreateFrame and CharCreateOkayButton) then return; end
+    self:SetScript("OnUpdate", nil);
+    local ok, err = pcall(Install);
+    if not ok then SZ.broken = tostring(err); end
+end);
+end)();

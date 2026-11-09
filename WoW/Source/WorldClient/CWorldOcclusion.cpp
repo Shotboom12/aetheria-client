@@ -1,4 +1,7 @@
 #include "CWorldOcclusion.h"
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+#include "HD/HdClipSpans.h"
+#endif
 #include <malloc.h>
 #include <cmath>
 #include <cstring>
@@ -404,11 +407,15 @@ void CWorldOcclusion::UpdateBufferChunk(const C3Vector* verts, const float* heig
             x1 = 383;
         }
 
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+        HD::ClipSpans::Raise(CWorldScene::s_clipBuffer, x0, x1, height);
+#else
         for (; x0 <= x1; x0++) {
             if (height > CWorldScene::s_clipBuffer[x0]) {
                 CWorldScene::s_clipBuffer[x0] = height;
             }
         }
+#endif
     }
 }
 
@@ -465,18 +472,26 @@ void CWorldOcclusion::UpdateBuffer(const C3Vector* points, int32_t count, uint32
             if (x0 <= x1) {
                 memset(&CWorldScene::s_clipBufferMask[x0], 1, x1 - x0 + 1);
 
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+                HD::ClipSpans::Raise(CWorldScene::s_clipBuffer, x0, x1, height);
+#else
                 for (int32_t x = x0; x <= x1; x++) {
                     if (height > CWorldScene::s_clipBuffer[x]) {
                         CWorldScene::s_clipBuffer[x] = height;
                     }
                 }
+#endif
             }
         } else {
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+            HD::ClipSpans::Raise(CWorldScene::s_clipBuffer, x0, x1, height);
+#else
             for (int32_t x = x0; x <= x1; x++) {
                 if (height > CWorldScene::s_clipBuffer[x]) {
                     CWorldScene::s_clipBuffer[x] = height;
                 }
             }
+#endif
         }
     }
 }
@@ -516,11 +531,15 @@ uint32_t CWorldOcclusion::QueryBuffer(const C3Vector& center, float radius, uint
         last = 383;
     }
 
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+    if (HD::ClipSpans::AnyBelow(CWorldScene::s_clipBuffer, first, last, view.y)) return 0;
+#else
     for (int32_t i = first; i <= last; i++) {
         if (view.y > CWorldScene::s_clipBuffer[i]) {
             return 0;
         }
     }
+#endif
 
     return 2;
 }
@@ -577,11 +596,15 @@ uint32_t CWorldOcclusion::QueryBuffer(CAaBox* box, uint8_t flags) {
         last = 383;
     }
 
+#ifdef WOWDECOMP_FAST_CLIP_SPANS
+    if (HD::ClipSpans::AnyBelow(CWorldScene::s_clipBuffer, first, last, maxY)) return 0;
+#else
     for (int32_t i = first; i <= last; i++) {
         if (maxY > CWorldScene::s_clipBuffer[i]) {
             return 0;
         }
     }
+#endif
 
     return 2;
 }

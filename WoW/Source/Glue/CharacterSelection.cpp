@@ -1,4 +1,5 @@
 #include "Engine/Source/Retail/BodyShape.h"
+#include "Engine/Source/Retail/EyeEffects.h"
 #include "WoW/Common/ComponentCore/RetailRace.h"
 #include "WoW/Common/ComponentCore/EsteriaAppearance.h"
 #include "CharacterSelection.h"
@@ -52,6 +53,7 @@ static float s_ghostGlow = 0.15f;
 
 // STATIC: 0x00AC436C
 int32_t CCharacterSelection::s_selectionIndex = -1;
+WOWGUID CCharacterSelection::s_autoEnterGuid = { 0 };
 
 // STATIC: 0x00B6B1FC
 CSimpleModelFFX* CCharacterSelection::m_modelFrame;
@@ -557,6 +559,9 @@ void CCharacterSelection::ShowCharacter() {
         data.m_preferences.m_hairStyleId = info.m_hairStyleID;
         data.m_preferences.m_hairColorId = info.m_hairColorID;
         data.m_preferences.m_facialHairId = info.m_facialHairStyleID;
+        // The in-world component takes this from the unit's public fields; the roster carries it for character select
+        // (packed appearance of the Human and other packed races: hair, beard, eyes...).
+        data.m_preferences.m_esteriaExtra = EsteriaAppearance::RosterExtra(info.m_guid.m_guid);
         char retailPath[260];
         const bool retailModel = RetailRaceModelPath(info.m_raceID, info.m_sexID, retailPath, sizeof(retailPath), RetailRaceLookForm(info.m_guid.m_guid));
         data.m_model = CCharacterSelection::m_modelFrame->GetScene()->CreateModel(retailModel ? retailPath : playerRec->m_modelName, 0);
@@ -569,10 +574,6 @@ void CCharacterSelection::ShowCharacter() {
         data.m_flags |= 0x2;
 
         CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component->Init(&data, nullptr);
-        std::string const retailAppearance = EsteriaAppearance::RosterRetailAppearance(info.m_guid.m_guid);
-        if (!retailAppearance.empty())
-            RetailRaceApplyAppearance(CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component,
-                retailAppearance.data(), retailAppearance.size());
         sExtensionMgr->Log("LogoutTiming selection-component-initialized race=%u elapsed=%u ms",
             data.m_preferences.m_raceID, OsGetAsyncTimeMs() - selectionStart);
 
@@ -583,6 +584,19 @@ void CCharacterSelection::ShowCharacter() {
         CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component->m_data.m_model->SetBoneSequence(0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 1.0f, 1, 1);
 
         CCharacterSelection::DressComponent(CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_characterInfo, CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component);
+
+        // Restore the saved Retail appearance of the character from the roster, in the same order the world uses:
+        // the saved choices first, then the saved look (form, extra options), then the eye effect.
+        {
+            CharacterSelectionDisplay& shown = CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex];
+            const uint64_t shownGuid = shown.m_characterInfo.m_guid.m_guid;
+            const std::string savedAppearance = EsteriaAppearance::RosterRetailAppearance(shownGuid);
+            if (!savedAppearance.empty()) {
+                RetailRaceApplyAppearance(shown.m_component, savedAppearance.data(), savedAppearance.size());
+            }
+            RetailRaceApplyLookTo(shown.m_component, shownGuid, false);
+            RetailRaceEyeLightning(shown.m_component, CharacterEyeEffects::Lightning(EsteriaAppearance::RosterExtra(shownGuid)));
+        }
 
         if (CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_characterInfo.m_flags & 0x2000) {
             CGlueMgr::AttachCharacterSelectVisuals(CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component->m_data.m_model);
@@ -683,6 +697,12 @@ void CCharacterSelection::UpdateCharacterList() {
 
     ClientServices::Connection()->EnumerateCharacters(&CCharacterSelection::EnumerateCharactersCallback, nullptr);
 
+    // A character swap with nothing to enter: uncover the character select (ClientDestroyGame covered it).
+    if (!CCharacterSelection::s_characterList.Count() && CCharacterSelection::s_autoEnterGuid) {
+        CCharacterSelection::s_autoEnterGuid = { 0 };
+        LoadingScreenDisable();
+    }
+
     if (!CCharacterSelection::s_characterList.Count()) {
         CCharacterSelection::s_selectionIndex = 0;
         CCharacterSelection::ShowCharacter();
@@ -709,6 +729,30 @@ void CCharacterSelection::UpdateCharacterList() {
 
         CRealmList::m_preferredCategory = 0;
 
+        // Character swap: enter the world as the chosen character at once. The screen is covered
+        // (ClientDestroyGame), so the list is not built; the chosen character's model is, because the game takes it
+        // over (Shutdown -> m_activePlayerComponent) and shows the character at once instead of building it again.
+        // Only once: a target missing from the list, or one EnterWorld refuses, uncovers the normal character select.
+        WOWGUID autoEnter = CCharacterSelection::s_autoEnterGuid;
+        CCharacterSelection::s_autoEnterGuid = { 0 };
+
+        if (autoEnter) {
+            for (uint32_t i = 0; i < CCharacterSelection::s_characterList.Count(); i++) {
+                if (CCharacterSelection::s_characterList[i].m_characterInfo.m_guid == autoEnter) {
+                    CCharacterSelection::s_selectionIndex = static_cast<int32_t>(i);
+                    CCharacterSelection::ShowCharacter();
+                    CGlueMgr::EnterWorld();
+                    break;
+                }
+            }
+
+            if (CGlueMgr::m_idleState == IDLE_ENTER_WORLD) {
+                return;
+            }
+
+            LoadingScreenDisable();
+        }
+
         int32_t index = g_lastCharacterIndexVar->m_intValue < 0 ? 0 : g_lastCharacterIndexVar->m_intValue;
 
         if (index >= static_cast<int32_t>(CCharacterSelection::s_characterList.Count())) {
@@ -718,6 +762,22 @@ void CCharacterSelection::UpdateCharacterList() {
         CCharacterSelection::s_selectionIndex = index;
         CCharacterSelection::ShowCharacter();
         FrameScript_SignalEvent(GLUE_EVENT_UPDATE_SELECTED_CHARACTER, "%d", CCharacterSelection::s_selectionIndex + 1);
+    }
+
+    if (CCharacterSelection::s_autoEnterGuid) {
+        WOWGUID autoEnter = CCharacterSelection::s_autoEnterGuid;
+        CCharacterSelection::s_autoEnterGuid = { 0 };
+        for (uint32_t i = 0; i < CCharacterSelection::s_characterList.Count(); ++i) {
+            if (CCharacterSelection::s_characterList[i].m_characterInfo.m_guid == autoEnter) {
+                CCharacterSelection::s_selectionIndex = static_cast<int32_t>(i);
+                CCharacterSelection::ShowCharacter();
+                CGlueMgr::EnterWorld();
+                if (CGlueMgr::m_idleState == IDLE_ENTER_WORLD) {
+                    return;
+                }
+                break;
+            }
+        }
     }
 
     FrameScript_SignalEvent(GLUE_EVENT_CHARACTER_LIST_UPDATE, nullptr);

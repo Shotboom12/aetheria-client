@@ -180,7 +180,10 @@ class CGWorldFrame : public CSimpleFrame {
     void OnWorldUpdate();
     void UpdateDayNight(float deltaSec);
     int32_t HandleSpriteTrack(WOWGUID guid);
-    int32_t HitTestPoint(float x, float y, int32_t a3, HITTESTRESULT* result);
+    int32_t HitTestPoint(float x, float y, int32_t a3, HITTESTRESULT* result, bool centeredHover = false);
+    bool IsActionCameraCenterActive() const;
+    uint32_t m_actionCameraPressed = 0;
+    bool m_actionCameraWasHovering = false;
     int32_t CanTargetCorpseSelection(const CGCorpse_C* corpse, uint32_t flags);
     static void __stdcall CursorTrackObject(CGGameObject_C* object);
     static void __stdcall CursorTrackUnit(CGUnit_C* unit);
@@ -190,7 +193,7 @@ class CGWorldFrame : public CSimpleFrame {
     uint32_t GetHitTestFilterFlags(int32_t a1);
     uint64_t FindClosestModel(const C3Vector& start, const C3Vector& end, uint32_t flags, float* distance);
     int32_t HitTest(const C3Vector& start, const C3Vector& end, uint32_t flags, HITTESTRESULT* result);
-    void OnLayerTrackObject(const HITTESTRESULT& result);
+    void OnLayerTrackObject(const HITTESTRESULT& result, bool centeredHover = false);
     void OnLayerTrackTerrain(const HITTESTRESULT& result);
     void SetNamePlateUpdate();
     void SetPlayerFadeCameraValue(uint8_t value);

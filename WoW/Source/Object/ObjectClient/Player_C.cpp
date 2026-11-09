@@ -8372,6 +8372,10 @@ void CGPlayer_C::MeleeModeEnter(const WOWGUID& target) {
 // VERIFY: d5f87a32 manual
 // OFFSET: 0x006E2BE0
 int32_t CGPlayer_C::AutoCombatModeEventHandler(const void* data, void* param) {
+    // Esteria: this idle handler has been seen dereferencing a stale object (crash reports 2026-11-08, read of
+    // ".blp" text / a tiny pointer) while an item was being equipped. The auto ranged combat step is optional, so a
+    // fault inside it skips this idle tick instead of taking the client down.
+    auto body = [&]() -> int32_t {
     CGPlayer_C* player = ClntObjMgrGetActivePlayerObj();
 
     if (!player) {
@@ -8437,6 +8441,13 @@ int32_t CGPlayer_C::AutoCombatModeEventHandler(const void* data, void* param) {
     }
 
     return 1;
+    };
+
+    __try {
+        return body();
+    } __except (1) {
+        return 1;
+    }
 }
 
 // VERIFY: b36390c6 auto

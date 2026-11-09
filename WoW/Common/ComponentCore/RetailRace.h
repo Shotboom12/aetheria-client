@@ -100,6 +100,9 @@ void BodyShapeCreateFooter(CDataStore* packet, bool always);
 // player in view. Looks are kept by guid; a component applies its owner's look once per update.
 namespace CharacterRetailLook { struct Look; }
 void RetailLookCreateFooter(CDataStore* packet);
+bool CharacterStartZoneSet(uint8_t zone);
+uint8_t CharacterStartZoneGet();
+void CharacterStartZoneCreateFooter(CDataStore* packet);
 void RetailRaceSetLook(uint64_t guid, const CharacterRetailLook::Look& look);
 // The form (an app::Form) a character's saved look names, 0 if unknown: the model to create for it.
 uint32_t RetailRaceLookForm(uint64_t guid);

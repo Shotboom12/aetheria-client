@@ -2590,11 +2590,29 @@ void CGGameUI::HandleObjectTrackChange(WOWGUID guid, WOWGUID prevGuid) {
         object->ShowHighlightType(HT_MOUSEOVER);
     }
 
+    const CGWorldFrame* worldFrame = CGWorldFrame::s_currentWorldFrame;
+    const bool centered = worldFrame && worldFrame->IsActionCameraCenterActive();
+    const bool showTooltip = worldFrame && (centered || CSimpleTop::GetInstance()->m_mouseFocus == worldFrame);
+    const auto setHoverAnchor = [centered](bool floating) {
+        auto* tooltip = CGGameUI::m_gameTooltip;
+        auto* parent = CGGameUI::m_UISimpleParent;
+        if (centered && parent) {
+            tooltip->SetOwner(parent, ANCHOR_NONE, 0.0f, 0.0f);
+            tooltip->MarkFramePointsUnused();
+            tooltip->SetPoint(FRAMEPOINT_TOPLEFT, parent, FRAMEPOINT_CENTER,
+                NDCToDDCWidth(0.03f), NDCToDDCHeight(-0.025f), 1);
+        } else if (floating) {
+            tooltip->SetOwner(parent, ANCHOR_CURSOR, 0.0f, 0.0f);
+        } else {
+            tooltip->SetDefaultAnchor();
+        }
+    };
+
     switch (static_cast<uint32_t>(object->m_obj->m_type)) {
         case TYPEMASK_OBJECT | TYPEMASK_UNIT:
         case TYPEMASK_OBJECT | TYPEMASK_UNIT | TYPEMASK_PLAYER: {
-            if (CSimpleTop::GetInstance()->m_mouseFocus == CGWorldFrame::s_currentWorldFrame) {
-                CGGameUI::m_gameTooltip->SetDefaultAnchor();
+            if (showTooltip) {
+                setHoverAnchor(false);
                 WOWGUID none = { 0 };
                 CGGameUI::m_gameTooltip->SetUnit(guid, 1, none, 0);
             }
@@ -2614,13 +2632,8 @@ void CGGameUI::HandleObjectTrackChange(WOWGUID guid, WOWGUID prevGuid) {
         }
 
         case TYPEMASK_OBJECT | TYPEMASK_GAMEOBJECT:
-            if (CSimpleTop::GetInstance()->m_mouseFocus == CGWorldFrame::s_currentWorldFrame) {
-                if (object->FloatingTooltip()) {
-                    CGGameUI::m_gameTooltip->SetOwner(CGGameUI::m_UISimpleParent, ANCHOR_CURSOR, 0.0f, 0.0f);
-                } else {
-                    CGGameUI::m_gameTooltip->SetDefaultAnchor();
-                }
-
+            if (showTooltip) {
+                setHoverAnchor(object->FloatingTooltip());
                 CGGameUI::m_gameTooltip->SetObject(guid);
             }
 
@@ -2628,8 +2641,8 @@ void CGGameUI::HandleObjectTrackChange(WOWGUID guid, WOWGUID prevGuid) {
             break;
 
         case TYPEMASK_OBJECT | TYPEMASK_CORPSE:
-            if (CSimpleTop::GetInstance()->m_mouseFocus == CGWorldFrame::s_currentWorldFrame) {
-                CGGameUI::m_gameTooltip->SetDefaultAnchor();
+            if (showTooltip) {
+                setHoverAnchor(false);
                 CGGameUI::m_gameTooltip->SetCorpse(guid);
             }
 

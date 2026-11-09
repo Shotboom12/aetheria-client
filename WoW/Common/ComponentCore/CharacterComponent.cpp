@@ -3618,6 +3618,12 @@ static bool __stdcall ItemDisplayHasGeosetGroup(uint32_t displayID, int32_t grou
 // VERIFY: 197cf0f7 manual
 // OFFSET: 0x004ED900
 void CCharacterComponent::GeosRenderPrep() {
+    // A queued component can reach render prep after its model was released or never loaded (swap, Visage form).
+    // Crash 2026-11-07 19:45: CM2Model::SetGeometryVisible read this->m_fFlags through a null model.
+    if (!this->m_data.m_model) {
+        return;
+    }
+
     bool eyeGlow = false;
 
     if (this->m_data.m_preferences.m_classId == 6) {
@@ -5454,6 +5460,14 @@ bool CCharacterComponent::RenderPrep(int32_t wait) {
         return false;
     }
 
+    if (!this->m_data.m_model) { // no model yet: keep the component queued instead of dereferencing null
+        if (!this->m_link.m_next) {
+            CCharacterComponent::s_queue.LinkToTail(this);
+        }
+
+        return false;
+    }
+
     if (this->m_request) {
         this->m_request->m_flags &= ~0x1;
         this->m_request = nullptr;
@@ -5545,11 +5559,12 @@ int32_t CCharacterComponent::Update(const void* data, void* param) {
         CCharacterComponent* next = CCharacterComponent::s_queue.Next(component);
 
         if (component->m_request) {
-            if (hasContext && (component->m_request->m_flags & 0x2)) {
+            // Wait while the component has no model yet (Dracthyr dragon login crashed in ReplaceTexture/SetGeometryVisible).
+            if (hasContext && (component->m_request->m_flags & 0x2) && component->m_data.m_model) {
                 component->ProcessFinishedRequest();
                 component->m_link.Unlink();
             }
-        } else if (component->VariationsLoaded(0) & component->ItemsLoaded(0)) {
+        } else if (component->m_data.m_model && (component->VariationsLoaded(0) & component->ItemsLoaded(0))) {
             component->m_flags |= 0x8;
 
             if (CCharacterComponent::s_bComponentThread) {

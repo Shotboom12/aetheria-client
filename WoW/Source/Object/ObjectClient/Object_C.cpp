@@ -1,4 +1,5 @@
 #include "Object_C.h"
+#include "WoW/Source/UIUtil/ActionCameraSettings.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "WoW/Source/Game/GameClient/ProjectTex.h"
@@ -1976,6 +1977,10 @@ void __stdcall CGObject_C::BuildSelectionRotMatrix(C44Matrix* matrix, const C3Ve
 // VERIFY: ab1865e5 manual
 // OFFSET: 0x00744EB0
 int32_t CGObject_C::SetCircleRenderStates() {
+    if (ActionCamera::suppressDialogueVisuals) {
+        return 0;
+    }
+
     CGxTex* texture = TextureGetGxTex(CGObject_C::s_selectionTexture, 0, nullptr);
 
     if (!texture) {

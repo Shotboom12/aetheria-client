@@ -371,7 +371,7 @@ class CM2Model {
     void SetSequenceCallback(void* callback, uint64_t param);
     void SetWorldTransform(const C44Matrix& matrix);
     // Override this attached instance's socket with a parent bone-space frame. Returns true on change.
-    bool SetAttachmentFrame(uint32_t bone, const C3Vector& position, float scale = 1.0f);
+    bool SetAttachmentFrame(uint32_t bone, const C3Vector& position, float scale = 1.0f, const C3Vector& rotation = C3Vector(0.0f, 0.0f, 0.0f));
     bool CopyAttachmentFrameFrom(const CM2Model* source);
     void SetWorldTransform(const C3Vector& position, float rotation, float scale);
     void SetWorldTransform(const C3Vector& position, float rotation, float scale, const C3Vector& up, uint32_t flags);
@@ -392,6 +392,17 @@ class CM2Model {
     void RenderBatchShadowMap(int32_t untextured, M2Batch* batch, const CModelBatchList& list, uint32_t index, M2SkinSection* section, M2SkinSection* prevSection);
     void RenderModelBatchesForProjectedTexture();
     int32_t Release();
+    // Published after the scene worker join and consumed on the next palette.
+    struct FootPlacementSample {
+        uint32_t frame = 0;
+        bool valid[2] = {};
+        bool moving = false;
+        uint32_t pelvis = UINT32_MAX;
+        uint32_t legs[2][3] = {};
+        C3Vector targets[2];
+        C3Vector normals[2];
+    } m_footPlacement;
+    void (*m_applyFootPlacement)(CM2Model&) = nullptr;
     int32_t SetIndices();
     void SetPrimaryBoneSequence(uint16_t sequenceIndex, uint16_t boneIndex, M2SequenceFallback fallback, uint32_t time, float speed, int32_t blend);
     void SetSecondaryBoneSequence(uint16_t sequenceIndex, uint16_t boneIndex, M2SequenceFallback fallback, uint32_t time, float speed);

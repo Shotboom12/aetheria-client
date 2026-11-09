@@ -14,10 +14,10 @@ class CGxTex;
 class CTexture;
 struct CShadowCacheQueryData;
 
-typedef void (*ShadowMatrixCallback)(C3Vector& center, float radius, C44Matrix& matrix, C3Vector& direction, int32_t band);
-typedef void (*ShadowFrustumCallback)(CFrustum& frustum, C44Matrix& matrix, const C3Vector& direction, CShadowCacheQueryData& data, int32_t band);
+typedef void (*ShadowMatrixCallback)(C3Vector& center, float radius, C44Matrix& matrix, C3Vector& direction, int32_t band, const C3Vector& sun);
+typedef void (*ShadowFrustumCallback)(CFrustum& frustum, C44Matrix& matrix, const C3Vector& direction, CShadowCacheQueryData& data, int32_t band, const C3Vector& sun);
 typedef int32_t (*ShadowQueryCallback)(CShadowCacheQueryData& data, uint32_t frame);
-typedef int32_t (*ShadowRenderCallback)(CShadowCacheQueryData& data, int32_t band, CGxTex* target, CGxTex* colorTarget, C3Vector& direction);
+typedef int32_t (*ShadowRenderCallback)(CShadowCacheQueryData& data, int32_t band, CGxTex* target, CGxTex* colorTarget, C3Vector& direction, const C3Vector& sun);
 
 struct CShadowBand {
     /* 0000 */ CTexture* m_textures[2];
@@ -83,6 +83,13 @@ class CShadowCache {
     static C4Vector s_sunDirViewSpace;
     static float s_textureSize[2];
 
+    // HD: cached maps own their render direction; no CShadowBand layout/offset changes.
+    static void ConfigureSunCache(bool enabled, float refreshDegrees);
+    static C3Vector BandSunDirection(int32_t band);
+    // HD: hdShadowTexelSnap, band centres aligned to the shadow map's texel grid in light space.
+    static void ConfigureTexelSnap(bool enabled);
+    // HD diagnostic: where band's centre falls inside a texel (0 = on the grid), u/v in texels.
+    static void BandTexelPhase(int32_t band, float* u, float* v);
     static void ClearBandTextures();
     static void Destroy();
     static void GatherBands(CShadowCacheQueryData& data, const C3Vector& pos, CFrustum& frustum, int32_t useCullFrustum);
@@ -111,5 +118,8 @@ class CShadowCache {
     static int32_t Update(const C3Vector& pos, int32_t useCullFrustum);
     static int32_t ValidateShadowMode(EShadowMode mode);
 };
+
+// HD diagnostic (temporary): CShadowQuery::Update frames since the last hdSunDiag line
+namespace HDShadowDiag { inline int cullOff = 0, cullOn = 0, inWmo = 0; inline int calls = 0; inline int groups[8]{}, m2[8]{}; inline int tq[3][6]{}; inline float glareMin = 1e30f, glareMax = 0.0f, glareUsed = 0.0f; }
 
 #endif

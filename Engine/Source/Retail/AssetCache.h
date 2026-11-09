@@ -1,8 +1,10 @@
 #pragma once
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -10,6 +12,7 @@
 namespace Retail {
 // Decoded originals only. Each directory belongs to one immutable build/product/locale.
 // Conversion is deliberately excluded so renderer fixes never reuse stale converted models.
+// Writes evict the oldest cache files only when needed to stay within the configured budget.
 class AssetCache {
     std::filesystem::path root_;
     uint64_t limit_ = 0;
@@ -31,6 +34,19 @@ class AssetCache {
     std::filesystem::path File(uint32_t id,bool lenient) const {
         return root_/(std::to_string(id)+(lenient?"-table.rca":".rca"));
     }
+    struct Entry {
+        std::filesystem::path path;
+        std::filesystem::file_time_type written;
+        uint64_t size;
+    };
+    static bool IsCacheFile(const std::filesystem::path& path) {
+        const auto name=path.filename().string();
+        const auto suffix=name.size()>=10&&name.compare(name.size()-10,10,"-table.rca")==0?10u:
+            name.size()>=4&&name.compare(name.size()-4,4,".rca")==0?4u:0u;
+        if (!suffix || name.size()==suffix) return false;
+        const auto digits=name.substr(0,name.size()-suffix);
+        return digits.front()!='0' && std::all_of(digits.begin(),digits.end(),[](unsigned char ch) { return ch>='0'&&ch<='9'; });
+    }
 public:
     void Configure(std::filesystem::path root,uint64_t limit) { root_=std::move(root);limit_=limit; }
     bool Enabled() const { return !root_.empty() && limit_; }
@@ -38,6 +54,8 @@ public:
         if (!Enabled() || !id) return false;
         try {
             const auto path=File(id,lenient);
+            const auto status=std::filesystem::symlink_status(path);
+            if (std::filesystem::is_symlink(status)||!std::filesystem::is_regular_file(status)) return false;
             std::ifstream in(path,std::ios::binary|std::ios::ate);
             if (!in) return false;
             const auto length=in.tellg();
@@ -57,15 +75,36 @@ public:
         if (!Enabled() || !id || bytes.empty() || bytes.size()>MaxFile) return false;
         std::filesystem::path temporary;
         try {
+            std::vector<uint8_t> existing;
+            if (Read(id,lenient,existing)) return true;
             std::filesystem::create_directories(root_);
             uint64_t used=0;
-            for (const auto& entry:std::filesystem::directory_iterator(root_)) {
-                if (entry.is_regular_file()) used+=entry.file_size();
-                if (used>limit_) return false;
-            }
+            std::vector<Entry> candidates;
             const auto target=File(id,lenient);
-            const uint64_t old=std::filesystem::is_regular_file(target)?std::filesystem::file_size(target):0;
-            if (used-old>limit_ || bytes.size()+24>limit_-(used-old)) return false;
+            const auto targetStatus=std::filesystem::symlink_status(target);
+            if (std::filesystem::is_symlink(targetStatus)) return false;
+            const uint64_t old=!std::filesystem::is_symlink(targetStatus)&&std::filesystem::is_regular_file(targetStatus)
+                ?std::filesystem::file_size(target):0;
+            for (const auto& entry:std::filesystem::directory_iterator(root_)) {
+                if (entry.is_symlink() || !entry.is_regular_file()) continue;
+                const uint64_t size=entry.file_size();
+                if (size>std::numeric_limits<uint64_t>::max()-used) return false;
+                used+=size;
+                // Only cache-owned filenames are eligible; unrelated files in this directory are preserved.
+                if (entry.path()!=target && IsCacheFile(entry.path()))
+                    candidates.push_back({entry.path(),entry.last_write_time(),size});
+            }
+            const uint64_t needed=bytes.size()+24;
+            if (needed>limit_ || used<old) return false;
+            std::sort(candidates.begin(),candidates.end(),[](Entry const& left,Entry const& right) {
+                return left.written<right.written;
+            });
+            for (const Entry& candidate:candidates) {
+                if (used-old<=limit_ && needed<=limit_-(used-old)) break;
+                std::error_code removeError;
+                if (std::filesystem::remove(candidate.path,removeError) && !removeError) used-=candidate.size;
+            }
+            if (used<old || used-old>limit_ || needed>limit_-(used-old)) return false;
             static std::atomic<uint64_t> serial{0};
             temporary=target;
             temporary+="."+std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count())
@@ -79,7 +118,7 @@ public:
                 }
             }
             // A previously valid file needs no replacement. Invalid entries are repairable.
-            std::vector<uint8_t> existing;
+            existing.clear();
             if (Read(id,lenient,existing)) { std::filesystem::remove(temporary); return true; }
             std::error_code ec;
             std::filesystem::remove(target,ec);

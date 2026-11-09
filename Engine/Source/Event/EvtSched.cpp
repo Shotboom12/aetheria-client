@@ -4,6 +4,7 @@
 #include "Engine/Source/Base/Prop.h"
 #include "Engine/Source/Event/EvtContext.h"
 #include "Engine/Source/Event/EvtInput.h"
+#include "Engine/Source/Event/EvtPerf.h" // HD: hdCataRenderPerf
 #include "Engine/Source/Event/EvtQueue.h"
 #include "Engine/Source/Event/EvtSched.h"
 #include "Engine/Source/Event/EvtThread.h"
@@ -13,6 +14,8 @@
 #include "Engine/Source/Os/System.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Storm/H/storm.h"
+
+EvtPerfHooks g_evtPerf = {}; // HD: hdCataRenderPerf, filled in by the WoW-side recorder
 
 namespace Event {
     // STATIC: 0x00AC0DC0
@@ -576,6 +579,14 @@ int32_t SchedulerThreadProcProcess(uint32_t hThread, int32_t* watchdogStarted) {
     }
 
     uint32_t result;
+    // HD: hdCataRenderPerf, main thread only (the recorder is not thread safe)
+    bool hdPerf = context && hThread == Event::s_mainThread && g_evtPerf.loop;
+
+    if (hdPerf) {
+        g_evtPerf.loop();
+    }
+
+    uint64_t hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
 
     if (Event::s_netServer) {
         if (timeout == -1) {
@@ -587,6 +598,8 @@ int32_t SchedulerThreadProcProcess(uint32_t hThread, int32_t* watchdogStarted) {
     } else {
         result = Event::s_threadSlots[hThread]->m_wakeEvent.Wait(timeout);
     }
+
+    EvtPerfEnd(EVTPERF_WAIT, hdPerfStart);
 
     if (!context) {
         return 0;
@@ -606,12 +619,19 @@ int32_t SchedulerThreadProcProcess(uint32_t hThread, int32_t* watchdogStarted) {
         float elapsedSec = static_cast<float>(static_cast<int32_t>(currTime - context->m_schedLastIdle)) * 0.001f;
         context->m_schedLastIdle = currTime;
 
+        // HD: hdCataRenderPerf, each part of the pass timed (Begin returns 0 when off or not the main thread)
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         IEvtDispatchUpdate(context, currTime, elapsedSec);
+        EvtPerfEnd(EVTPERF_UPDATE, hdPerfStart);
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         IEvtTimerDispatch(context);
+        EvtPerfEnd(EVTPERF_TIMER, hdPerfStart);
 
         if (context->m_schedFlags & 2) {
             int32_t shutdown = 0;
+            hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
             IEvtInputProcess(context, &shutdown);
+            EvtPerfEnd(EVTPERF_INPUT, hdPerfStart);
 
             if (shutdown) {
                 CloseContext(context);
@@ -619,10 +639,18 @@ int32_t SchedulerThreadProcProcess(uint32_t hThread, int32_t* watchdogStarted) {
             }
         }
 
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         SynthesizePoll(context);
+        EvtPerfEnd(EVTPERF_POLL, hdPerfStart);
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         IEvtQueueDispatchAll(context);
+        EvtPerfEnd(EVTPERF_QUEUE, hdPerfStart);
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         SynthesizeIdle(context, currTime, elapsedSec);
+        EvtPerfEnd(EVTPERF_IDLE, hdPerfStart);
+        hdPerfStart = hdPerf ? EvtPerfBegin() : 0;
         SynthesizePaint(context);
+        EvtPerfEnd(EVTPERF_PAINT, hdPerfStart);
     }
 
     if (hThread == Event::s_mainThread) {

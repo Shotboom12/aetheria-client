@@ -3,7 +3,39 @@
 -- supports. Flow: Appearance -> Next -> Body -> Accept. Values live in the client (SetBodyShape / GetBodyShape)
 -- and show on the creator preview model.
 -- Everything here is guarded: if anything fails the creator behaves exactly as before and a small note says why.
-local BS = { page = false, rows = {}, built = false, broken = nil, okayText = nil };
+local BS = { page = false, rows = {}, built = false, broken = nil, okayText = nil, presets = {}, presetSlot = 1 };
+local BS_PRESET_CVARS = { "aetheriaBodyShapePreset1", "aetheriaBodyShapePreset2", "aetheriaBodyShapePreset3" };
+
+local function BS_ReadPreset(slot)
+    local cvar = BS_PRESET_CVARS[slot];
+    if not cvar then return nil; end
+    local ok, stored = pcall(GetCVar, cvar);
+    if not ok or type(stored) ~= "string" or #stored == 0 or #stored > 4096 then return nil; end
+    if stored:sub(1, 4) ~= "BS1;" then return nil; end
+    local values = {};
+    for name, raw in stored:sub(5):gmatch("([^=;]+)=([^;]+)") do
+        local value = tonumber(raw);
+        if value and GetBodyShapeSupport(name) ~= false then values[name] = value; end
+    end
+    return next(values) and values or nil;
+end
+
+local function BS_WritePreset(slot, values)
+    local cvar = BS_PRESET_CVARS[slot];
+    if not cvar then return false; end
+    local fields = { "BS1" };
+    for _, row in ipairs(BS.rows) do
+        if values[row.name] and GetBodyShapeSupport(row.name) ~= false then
+            fields[#fields + 1] = row.name .. "=" .. string.format("%.6g", values[row.name]);
+        end
+    end
+    local stored = table.concat(fields, ";");
+    if #stored > 4096 then return false; end
+    local ok = pcall(SetCVar, cvar, stored);
+    if not ok then return false; end
+    local readOK, actual = pcall(GetCVar, cvar);
+    return readOK and actual == stored;
+end
 
 local function BS_Log(text)
     if BodyShapeLog then BodyShapeLog("lua: " .. tostring(text)); end
@@ -25,6 +57,10 @@ end
 
 function BodyShapePage_Active()
     return BS.page and BS_FlowAvailable();
+end
+
+function BodyShapePage_Follows()
+    return not BS.page and BS_FlowAvailable();
 end
 
 local function BS_Pretty(name)
@@ -56,10 +92,10 @@ local function BS_Install()
     note:SetTextColor(1, 0.6, 0.4);
     note:Hide();
 
-    local function MakeButton(name, text, width, x)
+    local function MakeButton(name, text, width, x, y)
         local button = CreateFrame("Button", name, panel);
         button:SetSize(width, 26);
-        button:SetPoint("TOP", CharacterCreateFrame, "TOP", x, -64);
+        button:SetPoint("TOP", CharacterCreateFrame, "TOP", x, y or -64);
         button:SetNormalFontObject(GlueFontNormalSmall);
         button:SetHighlightFontObject(GlueFontHighlightSmall);
         button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight");
@@ -79,6 +115,52 @@ local function BS_Install()
         PlaySound("gsCharacterCreationCancel");
         ResetBodyShape();
         if BS.ResetTriangle then BS.ResetTriangle(); end
+    end);
+
+    local savePreset = MakeButton("BodyShapeSavePresetButton", "Save Slot 1", 104, -110, -96);
+    local loadPreset = MakeButton("BodyShapeLoadPresetButton", "Load Slot 1", 104, 0, -96);
+    local nextPreset = MakeButton("BodyShapeNextPresetButton", "Next Slot", 104, 110, -96);
+    local copyCode = MakeButton("BodyShapeCopyCodeButton", "Copy Share Code", 136, -75, -128);
+    local pasteCode = MakeButton("BodyShapePasteCodeButton", "Paste Share Code", 136, 75, -128);
+    local function UpdatePresetLabels()
+        savePreset:SetText("Save Slot " .. BS.presetSlot);
+        loadPreset:SetText("Load Slot " .. BS.presetSlot);
+    end
+    savePreset:SetScript("OnClick", function()
+        local values = {};
+        for _, row in ipairs(BS.rows) do
+            if GetBodyShapeSupport(row.name) ~= false then values[row.name] = GetBodyShape(row.name); end
+        end
+        if not BS_WritePreset(BS.presetSlot, values) then
+            savePreset:SetText("Save failed");
+            return;
+        end
+        BS.presets[BS.presetSlot] = values;
+        savePreset:SetText("Saved!");
+        PlaySound("gsCharacterCreationLook");
+    end);
+    loadPreset:SetScript("OnClick", function()
+        local values = BS_ReadPreset(BS.presetSlot) or BS.presets[BS.presetSlot];
+        if not values then return; end
+        for name, value in pairs(values) do SetBodyShape(name, value); end
+        BS.presets[BS.presetSlot] = values;
+        PlaySound("gsCharacterCreationLook");
+    end);
+    nextPreset:SetScript("OnClick", function()
+        BS.presetSlot = BS.presetSlot % 3 + 1;
+        UpdatePresetLabels();
+    end);
+    copyCode:SetScript("OnClick", function()
+        if BodyShapeCopyCode and BodyShapeCopyCode() then
+            copyCode:SetText("Copied!");
+        else
+            copyCode:SetText("Copy failed");
+        end
+    end);
+    pasteCode:SetScript("OnClick", function()
+        local count = BodyShapePasteCode and BodyShapePasteCode() or 0;
+        pasteCode:SetText(count > 0 and ("Applied " .. count) or "No valid code");
+        if count > 0 then PlaySound("gsCharacterCreationLook"); end
     end);
 
     local columnTitle = {};
@@ -295,7 +377,7 @@ local function BS_Install()
             placed[row.group] = n + 1;
             row:ClearAllPoints();
             row:SetPoint(right and "TOPRIGHT" or "TOPLEFT", CharacterCreateFrame, right and "TOPRIGHT" or "TOPLEFT",
-                right and -55 or 55, -140 - (right and 0 or bodyTop) - n * (right and spacing or bodySpacing));
+                right and -55 or 55, -174 - (right and 0 or bodyTop) - n * (right and spacing or bodySpacing));
             Sync(row);
             row:Show();
         end
@@ -319,6 +401,13 @@ local function BS_Install()
     -- Accept becomes Next on the Appearance page; Back returns from the Body page before leaving customization.
     local okay = CharacterCreate_Okay;
     function CharacterCreate_Okay(...)
+        if StartZonePage_Open and StartZonePage_Open() then
+            return okay(...);
+        end
+        if BS_FlowAvailable() and BS.page and StartZonePage_Follows and StartZonePage_Follows() then
+            StartZonePage_Show();
+            return;
+        end
         if BS_FlowAvailable() and not BS.page then
             SetPage(true);
             return;
@@ -359,6 +448,11 @@ local function BS_Install()
     local function Tick(self)
 
         if CharCreateOkayButton and not BS.okayText then BS.okayText = CharCreateOkayButton:GetText(); end
+
+        if StartZonePage_Open and StartZonePage_Open() then
+            panel:Hide();
+            return;
+        end
 
         local status = BS_InPersonalization() and BS_Status() or nil;
         if status then note:SetText(status); note:Show(); else note:Hide(); end

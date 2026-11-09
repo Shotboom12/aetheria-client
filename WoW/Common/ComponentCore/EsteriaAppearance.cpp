@@ -2756,3 +2756,17 @@ void AppendCreate(CDataStore* packet) {
     RetailRaceAppendCreate(packet);
 }
 } // namespace EsteriaAppearance
+
+// Diagnostics: appends a line to EsteriaDecomp.log (used by the CoA spell charge and spell modifier code).
+void EsteriaTrace(const char* format, ...) {
+    char text[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    FILE* file = nullptr;
+    if (fopen_s(&file, "EsteriaDecomp.log", "a") == 0 && file) {
+        fprintf(file, "%s\n", text);
+        fclose(file);
+    }
+}

@@ -49,6 +49,11 @@ inline bool ReadCdnRange(const std::wstring& url,uint64_t offset,uint32_t length
         contentRange,&size,WINHTTP_NO_HEADER_INDEX)
         || swscanf_s(contentRange,L"bytes %llu-%llu/%llu",&first,&last,&total)!=3
         || first!=offset || last!=end || total<=last) {error="CDN returned a mismatched Content-Range";return false;}
+    DWORD contentLength=0;size=sizeof(contentLength);
+    if(!WinHttpQueryHeaders(request.handle,WINHTTP_QUERY_CONTENT_LENGTH|WINHTTP_QUERY_FLAG_NUMBER,
+        WINHTTP_HEADER_NAME_BY_INDEX,&contentLength,&size,WINHTTP_NO_HEADER_INDEX) || contentLength!=length) {
+        error="CDN returned a mismatched Content-Length";return false;
+    }
     bytes.resize(length);
     size_t received=0;
     while(received<length) {

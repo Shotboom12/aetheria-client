@@ -616,6 +616,7 @@ local function RaceTick()
     local classTop = (SK.gridBottom and SK.gridBottom.Horde or -300) - 35;
     SK.classTitle:ClearAllPoints();
     SK.classTitle:SetPoint("TOPRIGHT", CharacterCreateFrame, "TOPRIGHT", -EDGE_X, classTop);
+    local classColumns = 6;
     for index = 1, MAX_CLASSES_PER_RACE do
         local button = _G["CharacterCreateClassButton"..index];
         if button then
@@ -627,7 +628,7 @@ local function RaceTick()
                 if button[name] then button[name]:SetSize(48,48); end
             end
             button:SetPoint("TOPRIGHT", CharacterCreateFrame, "TOPRIGHT",
-                -EDGE_X - ((index-1)%5)*64, classTop-30-math.floor((index-1)/5)*62);
+                -EDGE_X - ((index-1)%classColumns)*64, classTop-30-math.floor((index-1)/classColumns)*62);
             -- Suppress every legacy square/atlas layer; use the same ring as the races.
             for _,suffix in ipairs({"Shadow","BevelEdge"}) do
                 local texture = _G[button:GetName()..suffix];

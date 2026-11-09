@@ -778,6 +778,9 @@ void ClientRegisterConsoleCommands() {
     g_accountNameVar = CVar::Register("accountName", "Saved account name", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
     CVar::Register("characterFavorites", "Saved character favorites", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
     CVar::Register("aetheriaAccountHistory", "Remembered login names by server (no passwords)", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
+    CVar::Register("aetheriaBodyShapePreset1", "Saved Body Shape preset 1", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
+    CVar::Register("aetheriaBodyShapePreset2", "Saved Body Shape preset 2", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
+    CVar::Register("aetheriaBodyShapePreset3", "Saved Body Shape preset 3", 0x40, "", nullptr, CATEGORY_GAME, false, nullptr, false);
     g_accountListVar = CVar::Register("accountList", "List of wow accounts for saved Blizzard account", 0, "", nullptr, CATEGORY_GAME, false, nullptr, false);
     g_accountUsesTokenVar = CVar::Register("g_accountUsesToken", "Saved whether uses authenticator", 0, "0", nullptr, CATEGORY_GAME, false, nullptr, false);
     s_cvMovie = CVar::Register("movie", "Show movie on startup", 0, "1", nullptr, CATEGORY_GAME, false, nullptr, false);

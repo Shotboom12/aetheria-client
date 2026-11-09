@@ -20,6 +20,8 @@ class CCharacterSelection {
     static int32_t s_characterCount;
     static float s_charFacing;
     static ClassMask s_raceRestrictions[10];
+    // Set by Extensions/CharacterSwap: the next character list enters the world as this character at once.
+    static WOWGUID s_autoEnterGuid;
 
     static void ClearCharacterList();
     static void EnumerateCharactersCallback(CHARACTER_INFO& info, void* param);

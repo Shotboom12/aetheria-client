@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="AETHERIA_WAIST_LANTERN" header="AETHERIA_ACTION_CAMERA">
+        if AetheriaToggleWaistLantern then AetheriaToggleWaistLantern() end
+    </Binding>
+</Bindings>

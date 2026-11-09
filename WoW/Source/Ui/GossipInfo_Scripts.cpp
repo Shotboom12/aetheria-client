@@ -70,7 +70,7 @@ static int32_t Script_GetGossipOptions(lua_State* L) {
     int32_t count = 0;
 
     // x64: adjacent globals are not the options array's end. Use the validated server option count.
-    // Upstream correction: Madominator1/Azeroth-Remastered 4929a782baa50d9e8e93b6f2b1a41e7ac12d027e.
+    // Upstream correction: Madominator1/Azeroth-Remastered 4929a782baa50d9e8e93b6f2b1a41e7ac12d027e (Mado's 2026-11-03 source carries the same fix).
     for (GossipOption* option = CGGossipInfo::m_options; option < CGGossipInfo::m_options + CGGossipInfo::m_gossipOptionsCount; option++) {
         if (option && option->m_index >= 0) {
             lua_checkstack(L, 2);

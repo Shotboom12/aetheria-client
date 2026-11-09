@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: Aetheria Action Camera
+## Notes: Toggle mouse look and a center reticle with /aetheriaactioncam.
+## Version: 0.1
+## SavedVariablesPerCharacter: AetheriaActionCameraHunterProfile, AetheriaActionCameraProfile
+AetheriaActionCamera.lua

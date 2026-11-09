@@ -73,16 +73,15 @@ void CharacterSelectionDisplay::ShowFormMirror(CharacterSelectionDisplay& displa
     data.m_model->WaitForLoad(nullptr);
     mirror->Init(&data, nullptr);
 
-    if (!RetailRaceApplyParkedTo(mirror, info.m_guid.m_guid)) {
-        CCharacterComponent::FreeComponent(mirror);
-        return;
-    }
-
     data.m_model->m_lightingCallback = &CCharacterSelection::GenericLightingCallback;
     data.m_model->m_lightingArg = CCharacterSelection::m_modelFrame->m_lightArray2;
     data.m_model->SetBoneSequence(0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 1.0f, 1, 1);
 
     CCharacterSelection::DressComponent(info, mirror);
+    if (!RetailRaceApplyParkedTo(mirror, info.m_guid.m_guid)) {
+        CCharacterComponent::FreeComponent(mirror);
+        return;
+    }
     data.m_model->AttachToParent(CCharacterSelection::m_modelFrame->m_model, 0, nullptr, 0);
     m_formMirror = mirror;
     CGlueLoading::StartLoad(mirror, 1);

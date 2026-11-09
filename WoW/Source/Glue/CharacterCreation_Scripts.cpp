@@ -738,6 +738,22 @@ static int32_t Script_CreateCharacter(lua_State* L) {
     return 0;
 }
 
+static int32_t Script_SetCreateStartZone(lua_State* L) {
+    if (!lua_isnumber(L, 1)) {
+        luaL_error(L, "Usage: SetCreateStartZone(zoneId)");
+        return 0;
+    }
+
+    int32_t const zone = static_cast<int32_t>(lua_tointeger(L, 1));
+    lua_pushboolean(L, zone >= 0 && zone <= UINT8_MAX && CharacterStartZoneSet(static_cast<uint8_t>(zone)));
+    return 1;
+}
+
+static int32_t Script_GetCreateStartZone(lua_State* L) {
+    lua_pushnumber(L, CharacterStartZoneGet());
+    return 1;
+}
+
 // VERIFY: 0866ae33 auto
 // OFFSET: 0x004E0CA0
 static int32_t Script_PaidChange_GetCurrentRaceIndex(lua_State* L) {
@@ -1031,6 +1047,8 @@ static FrameScript_Method s_scriptFunctions[] = {
     { "SetCharacterCreateFacing", &Script_SetCharacterCreateFacing },
     { "GetRandomName", &Script_GetRandomName },
     { "CreateCharacter", &Script_CreateCharacter },
+    { "SetCreateStartZone", &Script_SetCreateStartZone },
+    { "GetCreateStartZone", &Script_GetCreateStartZone },
     { "CustomizeExistingCharacter", &Script_CustomizeExistingCharacter },
     { "PaidChange_GetPreviousRaceIndex", &Script_PaidChange_GetPreviousRaceIndex },
     { "PaidChange_GetCurrentRaceIndex", &Script_PaidChange_GetCurrentRaceIndex },

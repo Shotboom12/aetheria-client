@@ -49,6 +49,8 @@
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gxu/Gxu.h"
 #include "Engine/Source/Model2/M2Scene.h"
+#include "Engine/Source/Model2/M2Model.h"
+#include "Engine/Source/Model2/M2Shared.h"
 #include "Engine/Source/Os/Time.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Services/Camera.h"
@@ -122,6 +124,8 @@
 #include "WoW/Source/Ui/Visuals.h"
 #include <cfloat>
 #include <cmath>
+#include <algorithm>
+#include "WoW/Source/UIUtil/ActionCameraSettings.h"
 #include "WoW/Source/Ui/SpellBookFrame.h"
 #include "WoW/Source/WorldClient/LivingWind.h"
 #include "WoW/Source/WorldClient/SurfaceCover.h"
@@ -858,8 +862,89 @@ void __stdcall CGWorldFrame::CursorTrackCorpse(CGCorpse_C* corpse) {
 
 // VERIFY: 92cbc82b manual
 // OFFSET: 0x004F8190
-void CGWorldFrame::OnLayerTrackObject(const HITTESTRESULT& result) {
-    if (this->m_worldFlags & 0x2) {
+static bool MissesActionCameraUnitHover(const HITTESTRESULT& hit, const CGUnit_C& unit) {
+    const C3Vector feet = unit.GetPosition();
+    const float height = unit.GetStandHeight();
+    const float radius = unit.m_selectionRadius;
+    const C3Vector start = hit.m_segStart - feet;
+    const C3Vector ray = hit.m_segEnd - hit.m_segStart;
+    const float horizontal = ray.x * ray.x + ray.y * ray.y;
+    const float length = horizontal + ray.z * ray.z;
+    if (!std::isfinite(length) || length < 0.01f || !std::isfinite(start.x) ||
+        !std::isfinite(start.y) || !std::isfinite(start.z) ||
+        !(height >= 0.2f && height <= 100.0f) || !(radius >= 0.1f && radius <= 15.0f)) {
+        return false;
+    }
+
+    const float bottom = height * 0.07f;
+    const float top = height * 0.98f;
+    const float width = std::clamp(radius * 0.55f * ActionCamera::unitHoverWidth / 80.0f, 0.11f, 8.0f);
+    const float horizontalDot = start.x * ray.x + start.y * ray.y;
+    const auto within = [&](float fraction) {
+        const C3Vector point = start + ray * std::clamp(fraction, 0.0f, 1.0f);
+        const float dz = point.z - std::clamp(point.z, bottom, top);
+        return point.x * point.x + point.y * point.y + dz * dz <= width * width;
+    };
+    return !within(0.0f) && !within(1.0f) &&
+        !(horizontal > 0.0f && within(-horizontalDot / horizontal)) &&
+        !within((ray.z * (bottom - start.z) - horizontalDot) / length) &&
+        !within((ray.z * (top - start.z) - horizontalDot) / length);
+}
+
+static bool MissesActionCameraObjectHover(const HITTESTRESULT& hit, const CGGameObject_C& object) {
+    C3Vector start = hit.m_segStart;
+    C3Vector end = hit.m_segEnd;
+    const bool questBoard = object.m_gameObject->m_typeID == 2;
+    CAaBox bounds = object.GetWorldBounds();
+    CM2Model* model = object.GetObjectModel();
+    if (!questBoard && model && model->m_shared && (model->m_shared->m_flags & 1) &&
+        model->m_shared->m_data && model->IsLoaded(0, 0)) {
+        const C44Matrix inverse = object.GetMatrix().AffineInverse();
+        start = start * inverse;
+        end = end * inverse;
+        bounds = model->GetBoundingBox();
+    } else if (!questBoard) {
+        return false;
+    }
+
+    const C3Vector ray = end - start;
+    const float origin[] = { start.x, start.y, start.z };
+    const float delta[] = { ray.x, ray.y, ray.z };
+    const float low[] = { bounds.b.x, bounds.b.y, bounds.b.z };
+    const float high[] = { bounds.t.x, bounds.t.y, bounds.t.z };
+    for (int axis = 0; axis < 3; ++axis) {
+        const float size = high[axis] - low[axis];
+        if (!std::isfinite(origin[axis]) || !std::isfinite(delta[axis]) ||
+            !(size >= 0.01f && size <= 100.0f)) {
+            return false;
+        }
+    }
+    if (ray.x * ray.x + ray.y * ray.y + ray.z * ray.z < 0.0001f)
+        return false;
+
+    const float scale = ActionCamera::objectHoverWidth / 100.0f;
+    float enter = 0.0f;
+    float exit = 1.0f;
+    for (int axis = 0; axis < 3; ++axis) {
+        const float middle = low[axis] + (high[axis] - low[axis]) * 0.5f;
+        const float half = (high[axis] - low[axis]) * 0.5f * scale;
+        if (std::fabs(delta[axis]) < 0.000001f) {
+            if (std::fabs(origin[axis] - middle) > half)
+                return true;
+            continue;
+        }
+        const float first = (middle - half - origin[axis]) / delta[axis];
+        const float last = (middle + half - origin[axis]) / delta[axis];
+        enter = std::max(enter, std::min(first, last));
+        exit = std::min(exit, std::max(first, last));
+        if (enter > exit)
+            return true;
+    }
+    return false;
+}
+
+void CGWorldFrame::OnLayerTrackObject(const HITTESTRESULT& result, bool centeredHover) {
+    if (!centeredHover && (this->m_worldFlags & 0x2)) {
         this->HandleSpriteTrack(WOWGUID());
         return;
     }
@@ -874,7 +959,13 @@ void CGWorldFrame::OnLayerTrackObject(const HITTESTRESULT& result) {
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
     CGObject_C* object = ClntObjMgrObjectPtr(result.m_guid, TYPEMASK_OBJECT, __FILE__, __LINE__);
 
-    if (!player || !object || !object->CanHighlight()) {
+    if (!player || !object || !object->CanHighlight() ||
+        (ActionCamera::preciseUnitHover && !centeredHover && result.m_distance != 0.0f &&
+            (object->m_obj->m_type & TYPEMASK_UNIT) &&
+            MissesActionCameraUnitHover(result, *static_cast<CGUnit_C*>(object))) ||
+        (ActionCamera::preciseObjectHover && !centeredHover && result.m_distance != 0.0f &&
+            (object->m_obj->m_type & TYPEMASK_GAMEOBJECT) &&
+            MissesActionCameraObjectHover(result, *static_cast<CGGameObject_C*>(object)))) {
         CursorResetMode();
         this->HandleSpriteTrack(WOWGUID());
         return;
@@ -1203,8 +1294,8 @@ int32_t CGWorldFrame::HitTest(const C3Vector& start, const C3Vector& end, uint32
 
 // VERIFY: 53a93536 auto
 // OFFSET: 0x004F9DA0
-int32_t CGWorldFrame::HitTestPoint(float x, float y, int32_t a3, HITTESTRESULT* result) {
-    if (!(CGInputControl::GetActive()->m_mouseModeFlags & 0x1)) {
+int32_t CGWorldFrame::HitTestPoint(float x, float y, int32_t a3, HITTESTRESULT* result, bool centeredHover) {
+    if (!centeredHover && !(CGInputControl::GetActive()->m_mouseModeFlags & 0x1)) {
         return 0;
     }
 
@@ -1948,6 +2039,26 @@ int32_t CGWorldFrame::ObjectEnumProc(void* param, uint32_t flags, uint64_t guid,
     return 1;
 }
 
+bool CGWorldFrame::IsActionCameraCenterActive() const {
+    const CGInputControl* input = CGInputControl::GetActive();
+    if (!input || !(input->m_flags & INPUT_PLAYER_LOOK_MASK) || Spell_C_IsTargeting() ||
+        CGGameUI::m_cursorItemType || !this->m_simpleTop) {
+        return false;
+    }
+
+    const CSimpleFrame* focus = this->m_simpleTop->m_mouseFocus;
+    lua_State* state = FrameScript_GetContext();
+    if (!state || (focus && focus != this)) {
+        return false;
+    }
+
+    lua_pushliteral(state, "AetheriaActionCameraCenterHover");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    const bool active = lua_isboolean(state, -1) && lua_toboolean(state, -1);
+    lua_pop(state, 1);
+    return active;
+}
+
 // VERIFY: 5ab100e2 manual
 // OFFSET: 0x004FA040
 void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
@@ -1964,9 +2075,16 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
     int32_t kind = -1;
     CSimpleFrame* focus = top->m_mouseFocus;
 
-    if (focus == this) {
+    const bool centeredHover = this->IsActionCameraCenterActive();
+    if (centeredHover != this->m_actionCameraWasHovering) {
+        this->m_actionCameraWasHovering = centeredHover;
+        this->HandleSpriteTrack(WOWGUID());
+    }
+
+    if (focus == this || centeredHover) {
         C2Vector ddc = { 0.0f, 0.0f };
-        NDCToDDC(top->m_mousePosition.m_x, top->m_mousePosition.m_y, &ddc.x, &ddc.y);
+        NDCToDDC(centeredHover ? 0.5f : top->m_mousePosition.m_x,
+            centeredHover ? 0.5f : top->m_mousePosition.m_y, &ddc.x, &ddc.y);
 
         if (Spell_C_IsTargeting() && Spell_C_CanTargetTerrain() && !Spell_C_CanTargetUnits()) {
             CGUnit_C::ClearNamePlateFocus();
@@ -1978,7 +2096,7 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
             kind = 2;
             hit.m_guid = CGNamePlateFrame::GetNamePlateFocus()->m_guid;
         } else {
-            kind = this->HitTestPoint(ddc.x, ddc.y, 1, &hit);
+            kind = this->HitTestPoint(ddc.x, ddc.y, 1, &hit, centeredHover);
         }
     } else if (focus && (focus->m_layoutFlags & 0x10000)) {
         lua_State* L = FrameScript_GetContext();
@@ -2036,7 +2154,7 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
             break;
 
         case 2:
-            this->OnLayerTrackObject(hit);
+            this->OnLayerTrackObject(hit, centeredHover);
             break;
 
         case 3: {
@@ -2054,7 +2172,7 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
                 break;
             }
 
-            this->OnLayerTrackObject(hit);
+            this->OnLayerTrackObject(hit, centeredHover);
             break;
         }
 
@@ -2113,6 +2231,8 @@ void CGWorldFrame::OnWorldUpdate() {
 
     CVehiclePassenger_C::UpdateAll(FrameTime::s_curTimeMs);
     CGCamera::UpdateCallback(nullptr, this->m_camera);
+    // Not in the original: extensions may move this frame's camera before the projection and listener use it.
+    sExtensionMgr->OnCameraUpdated(this->m_camera);
 
     CGCamera* camera = this->m_camera;
     C3Vector camPos = camera->m_position;
@@ -2536,11 +2656,18 @@ int32_t CGWorldFrame::OnLayerKeyUp(const CKeyEvent& evt) {
 // VERIFY: 0965c168 auto
 // OFFSET: 0x004F6C10
 int32_t CGWorldFrame::OnLayerMouseDown(const CMouseEvent& evt, const char* btn) {
+    const auto button = evt.m_data.m_button;
+    this->m_actionCameraPressed &= ~static_cast<uint32_t>(button);
     if (this->CSimpleFrame::OnLayerMouseDown(evt, btn) || CGGameUI::HandleMouseDown(evt)) {
         return 1;
     }
 
     KEYDOWNSTATE& state = this->m_mouseDown[MouseButtonToIndex(evt.m_data.m_button)];
+    if ((button == MOUSE_BUTTON_LEFT || button == MOUSE_BUTTON_RIGHT) && this->IsActionCameraCenterActive()) {
+        state.m_keyString[0] = 0;
+        this->m_actionCameraPressed |= static_cast<uint32_t>(button);
+        return 1;
+    }
 
     if (!CGUIBindings::MouseEventToString(evt, state.m_keyString, sizeof(state.m_keyString))) {
         return 0;
@@ -2553,7 +2680,28 @@ int32_t CGWorldFrame::OnLayerMouseDown(const CMouseEvent& evt, const char* btn) 
 // VERIFY: 513360ba manual
 // OFFSET: 0x004F6C90
 int32_t CGWorldFrame::OnLayerMouseUp(const CMouseEvent& evt, const char* btn) {
+    const auto button = evt.m_data.m_button;
+    const bool reticlePress = (this->m_actionCameraPressed & static_cast<uint32_t>(button)) != 0;
+    this->m_actionCameraPressed &= ~static_cast<uint32_t>(button);
     if (this->CSimpleFrame::OnLayerMouseUp(evt, btn)) {
+        return 1;
+    }
+
+    const bool centeredClick = (button == MOUSE_BUTTON_LEFT || button == MOUSE_BUTTON_RIGHT) &&
+        this->IsActionCameraCenterActive();
+    if (reticlePress || centeredClick) {
+        const CGPlayer_C* player = reticlePress && centeredClick ? ClntObjMgrGetActivePlayerObj() : nullptr;
+        if (player && !player->m_unit->m_unitFieldCharmedby) {
+            C2Vector center;
+            NDCToDDC(0.5f, 0.5f, &center.x, &center.y);
+            HITTESTRESULT hit{};
+            if (this->HitTestPoint(center.x, center.y, 0, &hit, true) == 2 && hit.m_guid) {
+                CSpriteClickEvent click;
+                click.m_guid = hit.m_guid;
+                click.m_button = static_cast<MOUSEBUTTON>(button);
+                CGGameUI::HandleSpriteClick(click);
+            }
+        }
         return 1;
     }
 

@@ -9,6 +9,11 @@
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "Engine/Source/Retail/BodyShape.h"
 #include "Engine/Source/Retail/BodyShapeMesh.h"
+#include "Engine/Source/Os/OsClipboard.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 // Body sliders. Values run -1..1; 0 leaves the model untouched. They edit the creator preview or the local player.
 static int32_t Script_SetBodyShape(lua_State* L) {
@@ -184,6 +189,67 @@ static int32_t Script_BodyShapeRandomize(lua_State* L) {
     return 0;
 }
 
+// BodyShapeCopyCode(): copy a bounded, versioned slider string to the system clipboard.
+static int32_t Script_BodyShapeCopyCode(lua_State* L) {
+    char code[4096] = "BS1;";
+    size_t used = 4;
+
+    for (BodyShape::Slider const& slider : BodyShape::Sliders()) {
+        if (!BodyShape::Supported(slider.name)) {
+            continue;
+        }
+
+        int32_t written = std::snprintf(code + used, sizeof(code) - used, "%s%s=%.3f",
+            used == 4 ? "" : ";", slider.name, BodyShape::Get(slider.name));
+        if (written < 0 || static_cast<size_t>(written) >= sizeof(code) - used) {
+            lua_pushboolean(L, false);
+            return 1;
+        }
+
+        used += static_cast<size_t>(written);
+    }
+
+    lua_pushboolean(L, OsClipboardPutString(code) != 0);
+    return 1;
+}
+
+// BodyShapePasteCode(): import a versioned clipboard string; BodyShape::Set validates slider names/ranges.
+static int32_t Script_BodyShapePasteCode(lua_State* L) {
+    char* code = OsClipboardGetString();
+    if (!code) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+
+    int32_t applied = 0;
+    size_t const length = std::strlen(code);
+    if (length <= 4096 && !std::strncmp(code, "BS1;", 4)) {
+        char* cursor = code + 4;
+        char* const end = code + length;
+        while (cursor < end) {
+            char* const separator = std::strchr(cursor, ';');
+            char* const tokenEnd = separator ? separator : end;
+            char* const equals = static_cast<char*>(std::memchr(cursor, '=', static_cast<size_t>(tokenEnd - cursor)));
+            if (equals && equals > cursor && equals - cursor < 64) {
+                char name[64];
+                size_t const nameLength = static_cast<size_t>(equals - cursor);
+                std::memcpy(name, cursor, nameLength);
+                name[nameLength] = '\0';
+                char* valueEnd = nullptr;
+                float const value = std::strtof(equals + 1, &valueEnd);
+                if (valueEnd == tokenEnd && BodyShape::Set(name, value)) {
+                    ++applied;
+                }
+            }
+            cursor = separator ? separator + 1 : end;
+        }
+    }
+
+    OsClipboardFreeString(code);
+    lua_pushinteger(L, applied);
+    return 1;
+}
+
 #define BODY_SHAPE_SCRIPT_ENTRIES \
     { "SetBodyShape", &Script_SetBodyShape }, \
     { "GetBodyShape", &Script_GetBodyShape }, \
@@ -196,6 +262,8 @@ static int32_t Script_BodyShapeRandomize(lua_State* L) {
     { "BodyShapeMeshStatus", &Script_BodyShapeMeshStatus }, \
     { "BodyShapeProbe", &Script_BodyShapeProbe }, \
     { "BodyShapeBoneInfo", &Script_BodyShapeBoneInfo }, \
-    { "BodyShapeLog", &Script_BodyShapeLog },
+    { "BodyShapeLog", &Script_BodyShapeLog }, \
+    { "BodyShapeCopyCode", &Script_BodyShapeCopyCode }, \
+    { "BodyShapePasteCode", &Script_BodyShapePasteCode },
 
 #endif

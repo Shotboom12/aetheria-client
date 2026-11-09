@@ -1,4 +1,7 @@
 #include "WoW/Source/WorldClient/HD/HdCataRipples.h"
+#include "WoW/Source/UIUtil/ActionCameraSettings.h"
+#include "WoW/Source/UIUtil/Camera.h"
+#include "WoW/Source/UIUtil/MountCameraPolicy.h"
 #include "Engine/Source/Retail/BodyShape.h"
 #include "Engine/Source/Retail/RacePolicy.h"
 #include "WoW/Common/ComponentCore/RetailRace.h"
@@ -88,6 +91,7 @@
 #include "WoW/Source/Ui/SpeedFlying.h"
 #include "WoW/Source/Ui/SpellBookFrame.h"
 #include "WoW/Source/Ui/Types.h"
+#include "WoW/Source/Ui/WorldFrame.h"
 #include "WoW/Source/WorldClient/AreaList.h"
 #include "WoW/Source/WorldClient/MapWeather.h"
 #include "WoW/Source/WorldClient/World.h"
@@ -5862,6 +5866,10 @@ void CGUnit_C::PlayBaseAnimation(uint32_t animId, int32_t flags) {
 // VERIFY: 3458f5db manual
 // OFFSET: 0x00729C70
 int32_t CGUnit_C::ShouldRenderObjectName(uint32_t flags) const {
+    if (ActionCamera::suppressDialogueVisuals && !(this->m_obj->m_type & TYPEMASK_PLAYER)) {
+        return 0;
+    }
+
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
     const WOWGUID* controllerGuid = this->m_unit->m_unitFieldCharmedby.m_guid ? &this->m_unit->m_unitFieldCharmedby : &this->m_unit->m_unitFieldCreatedby;
     CGUnit_C* controller = nullptr;
@@ -10439,6 +10447,19 @@ void CGUnit_C::UpdateWorldTransform(float elapsed) {
         float scale = this->GetTrueScale();
         float facing = this->GetRenderFacing();
         model->SetWorldTransform(this->GetPosition(), facing, scale, this->m_groundNormal, 0xFFFFFFFF);
+
+        // Native 1.0.4.2 mount banking: rotate only this unit's freshly built
+        // mount instance transform. The model data and other riders remain
+        // untouched, and the adjustment is absent outside the active player.
+        CGCamera* camera = CGWorldFrame::GetActiveCamera();
+        if (model == this->m_mountModel && this->IsMounted() && camera &&
+            camera->m_targetGUID == this->m_obj->m_guid) {
+            float matrix[16];
+            static_assert(sizeof(C44Matrix) == sizeof(matrix), "Unexpected M2 transform layout");
+            std::memcpy(matrix, &model->m_worldTransform, sizeof(matrix));
+            MountCameraPolicy::ApplyBank(matrix, camera->m_actionMountPresentationRoll);
+            std::memcpy(&model->m_worldTransform, matrix, sizeof(matrix));
+        }
     }
 
     // Not in the original: ground normal smoothed and the model placed for this frame.
@@ -15287,7 +15308,12 @@ int32_t CGUnit_C::InitializeComponent() {
         return 0;
     }
 
-    if (this->HasBakedNpcTexture()) {
+    if ((this->m_obj->m_type & TYPEMASK_PLAYER) && this->m_unit->m_unitFieldDisplayid == 950066) {
+        // Dracthyr dragon donor display. Its two model textures are creature-skin slots (types 11/12) with no names in
+        // CreatureDisplayInfo, so the body is invisible unless a character component supplies them. The display's
+        // extra row has no bake name, so the NPC branch below would create nothing. Build the player's component.
+        this->InitializeExtendedDisplay(static_cast<CGPlayer_C*>(this), 0);
+    } else if (this->HasBakedNpcTexture()) {
         this->InitializeExtendedDisplay(static_cast<CGPlayer_C*>(this), 1);
     } else if (this->m_displayInfoExtra) {
         int32_t result = this->InitializeExtendedDisplay(nullptr, 1);
@@ -20349,6 +20375,8 @@ void CGUnit_C::CreateMissile(const WOWGUID* target, PendingSpellCastData* data, 
         return;
     }
 
+    uint32_t multiTarget = spell.m_attributesExD & 0x40000;
+
     float scale = 1.0f;
     CM2Model* model = nullptr;
 
@@ -20495,18 +20523,30 @@ void CGUnit_C::CreateMissile(const WOWGUID* target, PendingSpellCastData* data, 
             missile->m_impactPos = data->m_sourcePos;
             missile->m_transportGuid = data->m_sourceTarget;
         } else {
-            if (!targets->m_count) {
+            // Esteria: custom server spells can arrive with an empty hit list
+            // while the cast still names its target; fly at that target rather
+            // than deleting the missile (fix from Kalibros's CoA64 notes).
+            WOWGUID missileTarget = targets->m_count ? targets->m_data[0] : data->m_objectTarget;
+            if (!missileTarget.m_guid) {
                 missile->DeleteSelf();
                 return;
             }
 
-            missile->m_targetGuid = targets->m_data[0];
+            missile->m_targetGuid = missileTarget;
             missile->m_attachmentID = attachment;
             missile->m_attachOffset = offset;
-            CGObject_C* object = ClntObjMgrObjectPtr(targets->m_data[0], TYPEMASK_OBJECT, __FILE__, __LINE__);
+            CGObject_C* object = ClntObjMgrObjectPtr(missileTarget, TYPEMASK_OBJECT, __FILE__, __LINE__);
 
             if (object) {
                 missile->m_impactPos = object->GetPosition();
+            }
+
+            if (!targets->m_count) {
+                // A single named target and no hit list is a plain hit. Left as
+                // a multi-target missile, IsHit() finds no result, the miss path
+                // runs (no impact kit or sound) and the missile is fired back.
+                missile->m_flags |= 1;
+                multiTarget = 0;
             }
 
             goto targetsDone;
@@ -20528,7 +20568,6 @@ void CGUnit_C::CreateMissile(const WOWGUID* target, PendingSpellCastData* data, 
     }
 
 targetsDone:
-    uint32_t multiTarget = spell.m_attributesExD & 0x40000;
 
     if (!*target && targets->m_count) {
         if (!multiTarget && !(data->m_targetFlags & 0x60)) {
@@ -24737,6 +24776,19 @@ void CGUnit_C::OnSpecialMountAnim() {
 // VERIFY: d5c90727 manual
 // OFFSET: 0x00720F80
 const SpellVisualRec* CGUnit_C::GetAppropriateSpellVisual(const SpellRec* spell, SpellVisualRec& visual, int32_t visualId, int32_t lowViolenceVisualId) const {
+    // Esteria: the server can draw this unit's casts of a spell with another visual (CoA's Cultist, SMSG 0x536)
+    if (uint32_t override = Spell_C_GetSpellVisualOverride(this->m_obj->m_guid.m_guid, spell->m_id)) {
+        if (override == 0xFFFFFFFF) {
+            memset(&visual, 0, sizeof(visual));
+            return &visual;
+        }
+
+        if (const SpellVisualRec* row = g_spellVisualDB.GetRecord(override)) {
+            visual = *row;
+            return &visual;
+        }
+    }
+
     int32_t id = visualId;
     const SpellVisualRec* weapon = nullptr;
     const SpellVisualRec* base;

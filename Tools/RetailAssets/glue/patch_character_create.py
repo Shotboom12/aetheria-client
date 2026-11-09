@@ -31,6 +31,8 @@ BODY_MARKER = "-- Body sliders page (wowdecomp)"
 BODY_PAGE = Path(__file__).with_name("body_page.lua")
 SKIN_MARKER = "-- Creator skin (wowdecomp)"
 SKIN = Path(__file__).with_name("creator_skin.lua")
+ZONE_MARKER = "-- Faction-restricted start-zone page, after Body sliders."
+ZONE_PAGE = Path(__file__).with_name("start_zone_page.lua")
 
 
 def replace_once(text, old, new):
@@ -183,6 +185,16 @@ def patch_skin(text):
     return (text + "\n" + skin).replace("\n", nl)
 
 
+def patch_start_zone_page(text):
+    """Appends faction-restricted start selection after the Body page and creator skin."""
+    nl = "\r\n" if "\r\n" in text else "\n"
+    text = text.replace("\r\n", "\n")
+    if ZONE_MARKER in text:
+        text = text[:text.index(ZONE_MARKER)].rstrip("\n") + "\n"
+    page = ZONE_PAGE.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return (text + "\n" + page).replace("\n", nl)
+
+
 def patch_legacy_frame_names(text):
     """Map creator controls to the names defined by this client's 3.3.5 GlueXML."""
     text = text.replace("CharacterCreateRaceButtonsContainer", "CharCreateRaceButtonsFrame")
@@ -202,9 +214,50 @@ def patch_legacy_frame_names(text):
     return text
 
 
+def patch_class_capacity(text):
+    """Expose the eleventh class button already declared by this client's GlueXML."""
+    marker = "-- Aetheria Hero class capacity v1"
+    if marker in text:
+        return text
+    old = "MAX_CLASSES_PER_RACE = 10;"
+    if text.count(old) != 1:
+        raise SystemExit("Expected one stock MAX_CLASSES_PER_RACE = 10 declaration")
+    return text.replace(old, marker + "\nMAX_CLASSES_PER_RACE = 11;", 1)
+
+
+def patch_hero_class_tooltip(text):
+    """Describe Hero and its flexible roles in the existing class tooltip."""
+    marker = "-- Aetheria Hero class tooltip v1"
+    if marker in text:
+        return text
+    old_description = '    local description = GetFlavorText("CLASS_"..token, GetSelectedSex()) or info.Description or ""\n'
+    if text.count(old_description) != 1:
+        raise SystemExit("Expected one class tooltip description declaration")
+    text = text.replace(old_description, old_description +
+        '    if token == "HERO" and description == "" then\n'
+        '        description = "Build a classless character with abilities from the Conquest of Azeroth library, and shape a role that suits your playstyle."\n'
+        '    end\n', 1)
+    role_anchor = '        MAGE = "Ranged Damage", WARLOCK = "Ranged Damage", DRUID = "Damage, Tank, Healer",\n'
+    if text.count(role_anchor) != 1:
+        raise SystemExit("Expected one class tooltip role table")
+    text = text.replace(role_anchor, role_anchor +
+        '        HERO = "Melee Damage, Ranged Damage, Tank, Healer",\n', 1)
+    anchor = "local function UpdateClassTooltip(button)\n"
+    if text.count(anchor) != 1:
+        raise SystemExit("Expected one class tooltip function")
+    return text.replace(anchor,
+        marker + "\n"
+        'CLASS_INFO_HERO0 = CLASS_INFO_HERO0 or "Choose the classless path and shape a flexible role with abilities from the Conquest of Azeroth library."\n'
+        + anchor, 1)
+
+
 def patch_all(text):
-    # The Body page strips from its marker to the end of the file, so the skin is always appended after it.
-    return patch_legacy_frame_names(patch_skin(patch_body_page(patch_pan(patch(text)))))
+    # Body, skin and the faction-restricted zone page must be appended in this order.
+    return patch_class_capacity(
+        patch_hero_class_tooltip(
+            patch_legacy_frame_names(patch_start_zone_page(patch_skin(patch_body_page(patch_pan(patch(text))))))
+        )
+    )
 
 
 def main():

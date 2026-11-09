@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <new>
 #include "Engine/Source/Event/Event.h"
+#include "Engine/Source/Event/EvtPerf.h" // HD: hdCataRenderPerf
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gxu/Gxu.h"
@@ -230,7 +231,9 @@ static int32_t OnPaint(const void* data, void* param) {
                 return 1;
             }
 
+            uint64_t hdPerf = EvtPerfBegin(); // HD: hdCataRenderPerf
             GxScenePresent();
+            EvtPerfEnd(EVTPERF_PRESENT, hdPerf);
         }
 
         s_elapsedSec = 0.0f;
