@@ -19,7 +19,7 @@ struct Uniform {float pixel[16][4];float misc[4];float vertex[64][4];};
 static_assert(sizeof(Uniform)==UniformBytes,"same std140 block as the 64-row native bone-palette variant");
 struct Pose {Uniform uniform{};float bones[MaxRows][4]{};};
 struct Input {const float(*pixel)[4]=nullptr;const float*misc=nullptr;const float(*vertex)[4]=nullptr;const float(*bones)[4]=nullptr;uint32_t rows=0;uint64_t paletteSerial=0;};
-enum class Result {Valid,First,Full,Conflict,Invalid,Shared}; // Shared: see HdFsrRigidMath.h (2026-10-31)
+enum class Result {Valid,First,Full,Conflict,Invalid,Shared}; // Shared: see HdFsrRigidMath.h (HD 2026-10-31)
 struct Observation {Result result=Result::Invalid;uint32_t cookie=~uint32_t(0);const Pose*previous=nullptr;bool captured=false;uint32_t bytesCopied=0;};
 template<uint32_t Count=2048,uint32_t Probes=64>class Cache {
  static_assert(Count&&!(Count&(Count-1)),"power of two");

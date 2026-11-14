@@ -10,7 +10,7 @@ namespace HD::Fsr::ObjectMotion {
 namespace {
 #include "shaders/HdFsrMotionCompose.spv.h"
 #include "shaders/HdFsrMotionDebug.spv.h"
-#include "shaders/HdFsrMotionDebugObject.spv.h" // diagnostic view of object markers (2026-10-31)
+#include "shaders/HdFsrMotionDebugObject.spv.h" // diagnostic view of object markers (HD, 2026-10-31)
 }
 struct Effect::Impl {
  WXL_VkDeviceInfo device{};const char*error="";uint64_t last=0;
@@ -118,7 +118,7 @@ bool Effect::Debug(const Frame&f,VkImage motion,VkImageView motionView,VkImageVi
  s->CmdPipelineBarrier(f.cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,nullptr,0,nullptr,1,&b);
  slot.serial[1]=s->last=f.serial;s->error="";return true;
 }
-// Diagnostic (2026-10-31): the object-marker image itself (GENERAL, written by the world pass), at native size.
+// Diagnostic (HD, 2026-10-31): the object-marker image itself (GENERAL, written by the world pass), at native size.
 bool Effect::DebugObjects(const Frame&f,VkImageView objectView,VkImageView output,float scale){
  auto*s=state_;if(!s)return false;
  if(!f.cmd||!f.serial||f.serial<=f.completed||f.slot>=s->device.frameSlots||!f.extent.width||!f.extent.height||f.extent.width>16384||f.extent.height>16384||!objectView||!output||!std::isfinite(scale)){s->error="M1 object debug frame unavailable";return false;}

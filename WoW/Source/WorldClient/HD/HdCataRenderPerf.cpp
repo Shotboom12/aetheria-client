@@ -7,6 +7,7 @@
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
 #include "Engine/Source/ConsoleBase/Types.h"
 #include "Engine/Source/Event/EvtPerf.h"
+#include "Engine/Source/Model2/HdM2Count.h"
 #include <string>
 namespace HD::CataRenderPerf {
 namespace {
@@ -19,9 +20,13 @@ constexpr const char* names[NS]={"render","prepareMap","wmoPrepare","terrain","w
  "grassLights","grassConstants","grassDraw","grassFill",
  "cullVolumes","cullChunks","cullGroups","cullLiquid","cullEntitys","cullDoodads","cullOcclusion","cullHorizon","cullChunkDoodads","cullChunkPrep",
  "loopWait","loopUpdate","loopTimer","loopInput","loopPoll","loopQueue","loopIdle","loopPaint","present",
- "idleWorld","idleUi","luaGc","pollNet"};
+ "idleWorld","idleUi","luaGc","pollNet",
+ "shadowDyn","shadowGather","shadowTerrainQ0","shadowTerrainQ1","shadowTerrainQ2","shadowBand0","shadowBand1","shadowBand2","grassBake"}; // lot H2: grassBake
 static_assert(size_t(Stage::Present)-size_t(Stage::LoopWait)==EVTPERF_PRESENT,"Stage loop order must follow EvtPerfPhase");
-constexpr const char* counterNames[NC]={"wmoDefs","wmoGroups","rootWaits","groupWaits","asyncReads","horizonAll","horizonCandidates","horizonFallbacks","horizonMismatch","grassChunks","grassDraws","grassFills","grassSingleModel","grassMixedModels","grassInsts","grassPackVertices","grassPackAcquires","grassPackFull","grassPackIndices","grassPackIndexFull","grassPackEvicts","grassFillSkipped","cullChunksTested","cullChunksKept","cullClipUpdates","cullDoodadsTested"};
+constexpr const char* counterNames[NC]={"wmoDefs","wmoGroups","rootWaits","groupWaits","asyncReads","horizonAll","horizonCandidates","horizonFallbacks","horizonMismatch","grassChunks","grassDraws","grassFills","grassSingleModel","grassMixedModels","grassInsts","grassPackVertices","grassPackAcquires","grassPackFull","grassPackIndices","grassPackIndexFull","grassPackEvicts","grassFillSkipped","cullChunksTested","cullChunksKept","cullClipUpdates","cullDoodadsTested","terrainStreamed","terrainPoolFull",
+ "m2Batchable","m2NoCacheFlag","m2NoModelFlag","m2OneBoneOnly","m2NoBatchFlag","m2LocalLights","m2Transparent","m2Projected","m2BatchDraws","m2BatchInstances",
+ "doodadsTo100","doodads100To300","doodads300To600","doodadsBeyond600"};
+static_assert(size_t(Counter::M2BatchInstances)-size_t(Counter::M2Batchable)+1==HDM2Count::Count,"lot I1: Counter::M2* must follow HDM2Count order");
 // Spike recorder: per scheduler pass sums; a pass much longer than the usual one is written to
 // Logs/CataRenderSpikes.log with every stage and counter of that pass (lines kept in memory, written every 2 s).
 std::array<uint64_t,NS> passNs{};std::array<uint64_t,NC> passCounters{};uint64_t lastPass=0,enabledAt=0;double usualMs=0.0;
@@ -48,7 +53,7 @@ void LoopStart(){
  if(lastPass){
   const double ms=(now-lastPass)/1e6;
   const bool sleeping=passNs[size_t(Stage::LoopWait)]>uint64_t(ms*0.5e6); // FPS cap or background: not a hitch
-  if(usualMs>0.0&&ms>25.0&&ms>2.0*usualMs&&!sleeping){
+  if(usualMs>0.0&&ms>16.0&&ms>1.4*usualMs&&!sleeping){ // HD 2026-11-04 lot C2: was 25 ms and 2x, the turning hitches are 16-18 ms
    if(spikeLines<kSpikeLinesPerWindow){
     char line[256];
     std::snprintf(line,sizeof line,"t=%.3fs pass_ms=%.2f usual_ms=%.2f |",(lastPass-enabledAt)/1e9,ms,usualMs);
@@ -66,7 +71,7 @@ uint64_t HookBegin(){return enabled?Now():0;}
 void HookEnd(uint32_t phase,uint64_t start){if(phase<EVTPERF_COUNT)End(Stage(size_t(Stage::LoopWait)+phase),start);}
 bool Toggle(CVar*,const char*,const char*s,void*){
  if(!s||!(std::strcmp(s,"0")==0||std::strcmp(s,"1")==0))return false;
- enabled=s[0]=='1';Reset();lastFrame=0;lastPass=0;usualMs=0.0;enabledAt=Now();ResetPass();
+ enabled=s[0]=='1';HDM2Count::on=enabled;for(auto&x:HDM2Count::n)x=0;Reset();lastFrame=0;lastPass=0;usualMs=0.0;enabledAt=Now();ResetPass();
  if(!enabled)WriteSpikes();
  if(!enabled){CloseLog();if(info)info->Set("off",true,false,false,false);}return true;
 }
@@ -75,11 +80,12 @@ double Ms(Stage s,double f){return timing[size_t(s)].ns/1e6/f;}
 void Initialize(){
  if(initialized)return;
  CVar*toggle=CVar::Register("hdCataRenderPerf","HD: CPU stages; Logs/CataRenderPerf.log every 2s, no FPS limit changes",1,"0",Toggle,CATEGORY_GRAPHICS,false,nullptr,false);
+ {static bool hdDef1Once=false;if(!hdDef1Once){hdDef1Once=true;if(toggle&&toggle->m_intValue!=0)toggle->InternalSet("0",true,false,false,false);}} // HD DEF1: diagnostic journal off at every start
  info=CVar::Register("hdCataRenderPerfInfo","HD: last CPU measurements (milliseconds per scene render)",0,"off",nullptr,CATEGORY_GRAPHICS,false,nullptr,false); if (info) info->m_flags &= ~0x1u; /* status only: not archived to Config.wtf */
- initialized=true;enabled=toggle&&toggle->m_intValue!=0;Reset();enabledAt=Now();
+ initialized=true;enabled=toggle&&toggle->m_intValue!=0;HDM2Count::on=enabled;Reset();enabledAt=Now();
  g_evtPerf={HookBegin,HookEnd,LoopStart};
 }
-void Shutdown(){g_evtPerf={};WriteSpikes();enabled=false;initialized=false;CloseLog();info=nullptr;Reset();}
+void Shutdown(){g_evtPerf={};HDM2Count::on=false;WriteSpikes();enabled=false;initialized=false;CloseLog();info=nullptr;Reset();}
 bool Enabled(){return enabled;}
 uint64_t Begin(){return enabled?Now():0;}
 void End(Stage stage,uint64_t start){
@@ -96,6 +102,7 @@ void FrameStart(){
 void FrameEnd(){
  if(!enabled)return;++frames;const uint64_t now=Now();if(now-window<2000000000ull)return;
  const double f=frames?double(frames):1.0;char text[768];
+ for(uint32_t i=0;i<HDM2Count::Count;++i){counters[size_t(Counter::M2Batchable)+i]+=HDM2Count::n[i];HDM2Count::n[i]=0;} // lot I1
  std::snprintf(text,sizeof text,"image %.2fms; world %.2f (scene %.2f, M2 %.2f+%.2f, lists %.2f, grass %.2f, HD %.2f, liquid %.2f, spells %.2f, post %.2f); outside world %.2f; grass: lights %.2f, consts %.2f, draw %.2f, fill %.2f, %.0f chunks %.0f draws %.1f fills; frames %llu",
  Ms(Stage::Frame,f),Ms(Stage::WorldFrame,f),Ms(Stage::Render,f),Ms(Stage::M2Opaque,f),Ms(Stage::M2Alpha,f),Ms(Stage::DrawLists,f),Ms(Stage::DetailDoodads,f),
  Ms(Stage::HdOpaque,f),Ms(Stage::Liquid,f),Ms(Stage::Spells,f),Ms(Stage::PostFx,f),Ms(Stage::Frame,f)-Ms(Stage::WorldFrame,f),

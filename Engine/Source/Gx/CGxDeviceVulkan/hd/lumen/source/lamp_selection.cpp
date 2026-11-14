@@ -322,7 +322,9 @@ void LampSelection::WriteSlot(int slot, const lampfile::Lamp& lamp, const FrameI
     const LampFlickerValue flicker = LampFlicker(lamp, in.seconds, cfg.lampFlicker);
     const float burning =
         lamp.intensity * flicker.intensity * s.fade * FireShare(lamp, cfg) * IndoorShare(indoor, in, cfg);
-    const float scale = burning * haze * LampNearCameraShare(cameraYards) * LampDistanceFade(cameraYards) *
+    // HD J1 2026-11-05: outdoor lamps lit at night only (LampDayLight, default 0), indoor lamps always
+    const float dayShare = indoor ? 1.0f : LampDayShareAt(cfg, in.dayFraction); // HD 2026-11-05 lot J2: by the clock (21:30-22:00)
+    const float scale = burning * dayShare * haze * LampNearCameraShare(cameraYards) * LampDistanceFade(cameraYards) *
                         (indoor ? kIndoorLampHaze : 1.0f);
     const float reach = std::clamp(lamp.reach, kMinLampReach, kMaxLampReach);
     float* sphere = m_table.texels[kLampSphereRow][slot];
@@ -336,7 +338,7 @@ void LampSelection::WriteSlot(int slot, const lampfile::Lamp& lamp, const FrameI
 
     const float glowing = (lamp.flags & lampfile::kLampWmoLantern) ? lanternGlow : 1.0f;
     const float onSurfaces = haloOnly ? 0.0f
-                                      : burning * surfaceLight * glowing * (indoor ? kIndoorLampLight : 1.0f) *
+                                      : burning * dayShare * surfaceLight * glowing * (indoor ? kIndoorLampLight : 1.0f) *
                                             LampDistanceFade(cameraYards);
     float* surface = m_table.texels[kLampSurfaceRow][slot];
     surface[0] = lamp.color[0] * onSurfaces;

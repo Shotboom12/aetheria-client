@@ -14,6 +14,7 @@
 #include "Engine/Source/Model2/M2Model.h"
 #include "Engine/Source/Model2/M2Scene.h"
 #include "Engine/Source/Model2/M2Shared.h"
+#include "Engine/Source/Model2/HdM2Count.h"
 #include "Engine/Source/Services/ParticleSystem2.h"
 #include "Engine/Source/Services/RibbonEmitter.h"
 #include "Engine/Source/Services/Texture.h"
@@ -445,6 +446,12 @@ void CM2SceneRender::SetupMaterial() {
 // VERIFY: aeedaf63 manual
 // OFFSET: 0x008203B0
 void CM2SceneRender::DrawBatch() {
+    if (!this->m_curModel || !this->m_curModel->m_shared || !this->m_data ||
+        !this->m_curElement || !this->m_curElement->m_batch ||
+        !this->m_curElement->m_skinSection || !this->m_curElement->m_effect ||
+        this->m_curElement->m_batch->m_materialIndex >= this->m_data->m_materials.m_count) {
+        return;
+    }
 #ifdef WOWDECOMP_FSR
     // Only one affine palette matrix for the WHOLE mesh; multi-bone skinning and wind wait for M3/M4.
     const auto* fsrSkin=this->m_curElement->m_skinSection;
@@ -455,7 +462,7 @@ void CM2SceneRender::DrawBatch() {
         CShaderEffect::s_enableShaders&&this->m_data->m_bones.m_count==1&&fsrSkin&&fsrSkin->m_boneCount==1&&fsrSkin->m_boneInfluences<=1,
         false,fsrPalette?uint32_t(fsrSkin->m_boneCount)*3u:0u,
         fsrPalette?&this->m_data->m_boneCombos[fsrSkin->m_boneComboIndex]:nullptr);
-    HD::Fsr::Rigid::DiagModel fsrDiagModel(this->m_curModel->m_shared->m_fileNameWithoutPath,fsrSkin?uint32_t(fsrSkin->m_boneCount):0u,uint32_t(this->m_data->m_bones.m_count)); // DIAG M3 (2026-10-31)
+    HD::Fsr::Rigid::DiagModel fsrDiagModel(this->m_curModel->m_shared->m_fileNameWithoutPath,fsrSkin?uint32_t(fsrSkin->m_boneCount):0u,uint32_t(this->m_data->m_bones.m_count)); // DIAG M3 (HD 2026-10-31)
 #endif
     DebugLog("Batch: model=%s index=%d", this->m_curModel->m_shared->m_fileNameWithoutPath, this->m_curElement->m_index);
 
@@ -469,11 +476,22 @@ void CM2SceneRender::DrawBatch() {
     this->SetupMaterial();
     this->SetupTextures();
 
-    if (CShaderEffect::s_enableShaders && (this->m_curType != this->m_prevType || this->m_curModel != this->m_prevModel || this->m_curSkinSection->m_boneComboIndex != this->m_prevSkinSection->m_boneComboIndex)) {
+    if (CShaderEffect::s_enableShaders && (this->m_curType != this->m_prevType || this->m_curModel != this->m_prevModel || !this->m_prevSkinSection || this->m_curSkinSection->m_boneComboIndex != this->m_prevSkinSection->m_boneComboIndex)) {
         // M2_BONE_BUDGET_UPLOAD
         if(!m_curSkinSection || m_curSkinSection->m_boneCount>M2BoneLimit(m_curShared?m_curShared->m_fileName:nullptr)) {
             M2ReportBoneLimit(m_curShared?m_curShared->m_fileName:"?",m_curSkinSection?m_curSkinSection->m_boneCount:0,1);
             return;
+        }
+        const uint32_t firstBone = this->m_curSkinSection->m_boneComboIndex;
+        const uint32_t boneCount = this->m_curSkinSection->m_boneCount;
+        if (!this->m_curModel->m_boneMatrices || firstBone > this->m_data->m_boneCombos.m_count ||
+            boneCount > this->m_data->m_boneCombos.m_count - firstBone) {
+            return;
+        }
+        for (uint32_t i = 0; i < boneCount; ++i) {
+            if (this->m_data->m_boneCombos[firstBone + i] >= this->m_data->m_bones.m_count) {
+                return;
+            }
         }
         float* constants = g_theGxDevicePtr->ShaderConstantsLock(GxSh_Vertex) + 31 * 4;
 
@@ -657,6 +675,11 @@ void CM2SceneRender::DrawBatchDoodad(M2Element* elements, uint32_t* indices) {
 
     if (instances > total) {
         instances = total;
+    }
+
+    if (HDM2Count::on && instances) { // HD lot I1: counting only (draws this call issues, instances they carry)
+        HDM2Count::Add(HDM2Count::BatchDraws, (total + instances - 1) / instances);
+        HDM2Count::Add(HDM2Count::BatchInstances, total);
     }
 
     this->m_curShared->SetIndices();

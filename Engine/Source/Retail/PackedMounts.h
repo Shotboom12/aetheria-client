@@ -8,6 +8,7 @@ enum class PackedResult { Missing, Ready, Invalid };
 // Null bytes requests only a bounded original size; never calls the Retail adapter.
 using PackedReader = PackedResult (*)(const char*, std::vector<uint8_t>*, uint32_t&, std::string&);
 void SetPackedReader(PackedReader reader);
+bool HasPackedReader();
 PackedResult ReadPackedFile(const char* name, std::vector<uint8_t>* bytes, uint32_t& size, std::string& error);
 
 struct PackedMount {

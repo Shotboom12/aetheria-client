@@ -295,10 +295,42 @@ int32_t CVar::Delete(const char* fileName) {
     return 1;
 }
 
+// HD (OPT2, 2026-11-04): a value too long for the 260-byte line lost its closing quote and newline,
+// so the next setting of Config.wtf was glued to it and lost at the next load (seen with long HD
+// status texts such as hdCataRenderPerfInfo / hdSunInfo). The value is clipped instead; short values
+// are written exactly as before.
+static const char* HdFitCvarValue(const char* name, const char* value, char (&clipped)[260]) {
+    if (!value) {
+        return "";
+    }
+    // "SET " + name + " \"" + value + "\"\n" + NUL = name + value + 9 bytes.
+    const size_t nameLen = name ? SStrLen(name) : 0;
+    const size_t room = nameLen + 9 < sizeof(clipped) ? sizeof(clipped) - nameLen - 9 : 0;
+    if (SStrLen(value) <= room) {
+        return value;
+    }
+    size_t i = 0;
+    for (; i < room && value[i]; ++i) {
+        clipped[i] = value[i];
+    }
+    clipped[i] = 0;
+    return clipped;
+}
+
 // VERIFY: 158a6024 auto
 // OFFSET: 0x00766640
 int32_t CVar::SaveCvar(const char* name, const char* value, void* arg) {
     char line[260];
+    char clipped[260];
+    value = HdFitCvarValue(name, value, clipped);
+
+    // Not in the original binary: a line too long for the buffer was written cut off, without its closing quote and
+    // newline, so the next load read every following SET as part of that value and lost them (status cvars such as
+    // surfaceCoverInfo swallowed housingEnabled). Skip such a value instead.
+    if (SStrLen(name) + SStrLen(value) + 9 > sizeof(line)) { // 9: SET, space, space, two quotes, newline, NUL
+        return 1;
+    }
+
     SStrPrintf(line, sizeof(line), "SET %s \"%s\"\n", name, value);
 
     uint32_t written = 0;
@@ -311,6 +343,8 @@ int32_t CVar::SaveCvar(const char* name, const char* value, void* arg) {
 // OFFSET: 0x007666B0
 int32_t CVar::LogCvar(const char* name, const char* value, void* arg) {
     char line[260];
+    char clipped[260];
+    value = HdFitCvarValue(name, value, clipped);
     SStrPrintf(line, sizeof(line), "SET %s \"%s\"\n", name, value);
 
     CVarLogBuffer* log = static_cast<CVarLogBuffer*>(arg);

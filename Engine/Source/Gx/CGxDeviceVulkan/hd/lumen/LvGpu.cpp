@@ -37,6 +37,8 @@ struct Gpu::Impl {
  std::array<VkPipeline,size_t(Kernel::Count)>pipelines{};VkSampler point{},linear{},wrap{};
  struct Slot {void*uniformHandle=nullptr;WXL_VkBufferInfo uniform{};void*uploadHandle=nullptr;WXL_VkBufferInfo upload{};uint64_t serial=0;uint32_t cursor=0;size_t uploaded=0;std::array<VkDescriptorSet,Dispatches>sets{};};
  std::array<Slot,Slots>slots{};Target dummy;std::array<Target,64> retiredVolumes{};VkPhysicalDeviceMemoryProperties memory{};
+ PFN_vkCreateQueryPool CreateQueryPool=nullptr;PFN_vkDestroyQueryPool DestroyQueryPool=nullptr;PFN_vkCmdResetQueryPool CmdResetQueryPool=nullptr;PFN_vkCmdWriteTimestamp CmdWriteTimestamp=nullptr;PFN_vkGetQueryPoolResults GetQueryPoolResults=nullptr; // HD G1
+ double tsPeriod=0;uint32_t tsBits=0;std::array<VkQueryPool,Slots>tsPool{};std::array<bool,Slots>tsReset{};std::array<uint32_t,Slots>tsCount{};std::array<std::array<uint8_t,Dispatches>,Slots>tsKernel{}; // HD G1
  uint32_t frameSlots=0;VkDeviceSize stride=2048;uint64_t last=0;bool open=false;const char*error="";
  static constexpr size_t UploadBytes=8u*1024*1024;
 #define LV_GPU_FUNCTIONS(X) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateSampler) X(DestroySampler) X(CreateShaderModule) X(DestroyShaderModule) X(CreateComputePipelines) X(DestroyPipeline) X(CmdPipelineBarrier) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdDispatch) X(CmdCopyBufferToImage) X(CmdCopyImage) X(CmdClearColorImage) X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindImageMemory) X(CreateImageView) X(DestroyImageView) X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(BindBufferMemory) X(MapMemory) X(UnmapMemory) X(CmdCopyImageToBuffer)
@@ -44,8 +46,9 @@ struct Gpu::Impl {
  LV_GPU_FUNCTIONS(DECL)
 #undef DECL
  void Barrier(Target&t,VkImageLayout next,VkAccessFlags dst){
+  if(GpuTiming::on)++GpuTiming::barriers; // HD G1
   VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.oldLayout=t.layout;b.newLayout=next;b.image=t.info.image;b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,t.mipLevels,0,1};b.srcAccessMask=t.layout==VK_IMAGE_LAYOUT_UNDEFINED?0:VK_ACCESS_MEMORY_WRITE_BIT|VK_ACCESS_MEMORY_READ_BIT;b.dstAccessMask=dst;
-  CmdPipelineBarrier(ctx.cmd,t.layout==VK_IMAGE_LAYOUT_UNDEFINED?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&b);t.layout=next;t.last=ctx.serial;last=std::max(last,ctx.serial);
+  CmdPipelineBarrier(ctx.cmd,t.layout==VK_IMAGE_LAYOUT_UNDEFINED?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&b);t.layout=next;t.readReady=next==VK_IMAGE_LAYOUT_GENERAL&&dst==VK_ACCESS_SHADER_READ_BIT; /* HD L21 */t.last=ctx.serial;last=std::max(last,ctx.serial);
  }
 };
 bool Gpu::Init(const WXL_VkRenderApi*api){
@@ -61,6 +64,14 @@ bool Gpu::Init(const WXL_VkRenderApi*api){
  auto mem=reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(p->dev.getInstanceProcAddr(p->dev.instance,"vkGetPhysicalDeviceMemoryProperties"));if(!mem)return fail("memory properties unavailable");mem(p->dev.physicalDevice,&p->memory);
  auto props=reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(p->dev.getInstanceProcAddr(p->dev.instance,"vkGetPhysicalDeviceProperties"));if(!props)return fail("physical limits unavailable");VkPhysicalDeviceProperties limits{};props(p->dev.physicalDevice,&limits);
  auto queues=reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(p->dev.getInstanceProcAddr(p->dev.instance,"vkGetPhysicalDeviceQueueFamilyProperties"));if(!queues)return fail("queue properties unavailable");uint32_t queueCount=0;queues(p->dev.physicalDevice,&queueCount,nullptr);std::vector<VkQueueFamilyProperties> families(queueCount);queues(p->dev.physicalDevice,&queueCount,families.data());if(p->dev.queueFamily>=queueCount||!(families[p->dev.queueFamily].queueFlags&VK_QUEUE_COMPUTE_BIT))return fail("native queue lacks compute");
+ { // HD G1: optional timestamp pools (made once, never per frame); without them hdLvGpuTimes writes nothing
+  p->CreateQueryPool=reinterpret_cast<PFN_vkCreateQueryPool>(p->dev.getDeviceProcAddr(p->dev.device,"vkCreateQueryPool"));p->DestroyQueryPool=reinterpret_cast<PFN_vkDestroyQueryPool>(p->dev.getDeviceProcAddr(p->dev.device,"vkDestroyQueryPool"));p->CmdResetQueryPool=reinterpret_cast<PFN_vkCmdResetQueryPool>(p->dev.getDeviceProcAddr(p->dev.device,"vkCmdResetQueryPool"));p->CmdWriteTimestamp=reinterpret_cast<PFN_vkCmdWriteTimestamp>(p->dev.getDeviceProcAddr(p->dev.device,"vkCmdWriteTimestamp"));p->GetQueryPoolResults=reinterpret_cast<PFN_vkGetQueryPoolResults>(p->dev.getDeviceProcAddr(p->dev.device,"vkGetQueryPoolResults"));
+  if(p->CreateQueryPool&&p->DestroyQueryPool&&p->CmdResetQueryPool&&p->CmdWriteTimestamp&&p->GetQueryPoolResults&&limits.limits.timestampComputeAndGraphics&&families[p->dev.queueFamily].timestampValidBits&&limits.limits.timestampPeriod>0){
+   p->tsBits=families[p->dev.queueFamily].timestampValidBits;p->tsPeriod=limits.limits.timestampPeriod;
+   for(uint32_t f=0;f<p->frameSlots;++f){VkQueryPoolCreateInfo qp{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};qp.queryType=VK_QUERY_TYPE_TIMESTAMP;qp.queryCount=2*Dispatches;if(p->CreateQueryPool(p->dev.device,&qp,nullptr,&p->tsPool[f])!=VK_SUCCESS){for(auto&q:p->tsPool)if(q){p->DestroyQueryPool(p->dev.device,q,nullptr);q=VK_NULL_HANDLE;}p->tsBits=0;break;}}
+  }
+  GpuTiming::available=p->tsBits!=0;
+ }
  auto align=std::max<VkDeviceSize>(1,limits.limits.minUniformBufferOffsetAlignment);p->stride=(sizeof(Uniforms)+align-1)/align*align;
  if(limits.limits.maxUniformBufferRange<sizeof(Uniforms)||limits.limits.maxPerStageDescriptorSampledImages<16||limits.limits.maxPerStageDescriptorStorageImages<2)return fail("descriptor limits insufficient");
  std::array<VkDescriptorSetLayoutBinding,22>b{};b[0]={0,VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr};for(uint32_t i=1;i<=3;++i)b[i]={i,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr};for(uint32_t i=4;i<20;++i)b[i]={i,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr};for(uint32_t i=20;i<22;++i)b[i]={i,VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr};
@@ -92,7 +103,11 @@ bool Gpu::CreateVolume(Target&t,uint32_t side,VkFormat format,uint32_t mips){
 }
 void Gpu::Retire(Target&t){if(!s_||!t.handle)return;
  if(t.volumeMemory){if(t.last>s_->ctx.completedSerial){for(auto&r:s_->retiredVolumes)if(!r.handle){r=t;t={};return;}s_->error="volume retirement backlog full; keep target alive";return;}s_->DestroyImageView(s_->dev.device,t.info.view,nullptr);s_->DestroyImage(s_->dev.device,t.info.image,nullptr);s_->FreeMemory(s_->dev.device,t.volumeMemory,nullptr);}else s_->api->RetireImage(t.handle,t.last);t={};}
-bool Gpu::Begin(const WXL_VkStageContext&ctx){if(!s_||!ctx.cmd||ctx.frameSlot>=s_->frameSlots||ctx.frameSlots!=s_->frameSlots||!ctx.serial)return false;auto&slot=s_->slots[ctx.frameSlot];if(slot.serial!=ctx.serial){if(slot.serial>ctx.completedSerial)return false;slot.serial=ctx.serial;slot.cursor=0;slot.uploaded=0;}s_->ctx=ctx;for(auto&r:s_->retiredVolumes)if(r.handle&&r.last<=ctx.completedSerial)Retire(r);s_->open=true;if(s_->dummy.layout==VK_IMAGE_LAYOUT_UNDEFINED)Clear(s_->dummy,{0,0,0,0});return true;}
+bool Gpu::Begin(const WXL_VkStageContext&ctx){if(!s_||!ctx.cmd||ctx.frameSlot>=s_->frameSlots||ctx.frameSlots!=s_->frameSlots||!ctx.serial)return false;auto&slot=s_->slots[ctx.frameSlot];if(slot.serial!=ctx.serial){if(slot.serial>ctx.completedSerial)return false;
+  if(auto pool=s_->tsPool[ctx.frameSlot]){const uint32_t fs=ctx.frameSlot; // HD G1: read the finished frame of this slot, then reset its timestamps
+   if(s_->tsCount[fs]){const uint64_t mask=s_->tsBits>=64?~uint64_t(0):((uint64_t(1)<<s_->tsBits)-1);for(uint32_t i=0;i<s_->tsCount[fs];++i){uint64_t r[4]{};VkResult got=s_->GetQueryPoolResults(s_->dev.device,pool,2*i,2,sizeof r,r,2*sizeof(uint64_t),VK_QUERY_RESULT_64_BIT|VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);if((got==VK_SUCCESS||got==VK_NOT_READY)&&r[1]&&r[3]){const uint32_t k=s_->tsKernel[fs][i];GpuTiming::ms[k]+=double((r[2]-r[0])&mask)*s_->tsPeriod*1e-6;++GpuTiming::runs[k];}}++GpuTiming::frames;}
+   s_->tsCount[fs]=0;s_->tsReset[fs]=false;if(GpuTiming::on){s_->CmdResetQueryPool(ctx.cmd,pool,0,2*Dispatches);s_->tsReset[fs]=true;}}
+  slot.serial=ctx.serial;slot.cursor=0;slot.uploaded=0;}s_->ctx=ctx;for(auto&r:s_->retiredVolumes)if(r.handle&&r.last<=ctx.completedSerial)Retire(r);s_->open=true;if(s_->dummy.layout==VK_IMAGE_LAYOUT_UNDEFINED)Clear(s_->dummy,{0,0,0,0});return true;}
 bool Gpu::Run(Kernel which,const Uniforms&uniforms,const std::array<Texture,16>&textures,Target&out,Target*second,VkExtent2D dispatch){
  if(!s_||!s_->open||!out.handle||size_t(which)>=size_t(Kernel::Count))return false;auto&slot=s_->slots[s_->ctx.frameSlot];if(slot.cursor>=Dispatches){s_->error="per-frame dispatch budget exceeded";return false;}
  VkFormat format=VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -109,7 +124,9 @@ bool Gpu::Run(Kernel which,const Uniforms&uniforms,const std::array<Texture,16>&
  for(size_t i=0;i<16;++i){images[3+i].imageView=textures[i].view?textures[i].view:s_->dummy.info.view;images[3+i].imageLayout=textures[i].view?textures[i].layout:VK_IMAGE_LAYOUT_GENERAL;}
  images[19]={VK_NULL_HANDLE,out.info.view,VK_IMAGE_LAYOUT_GENERAL};images[20]={VK_NULL_HANDLE,second?second->info.view:s_->dummy.info.view,VK_IMAGE_LAYOUT_GENERAL};
  VkDescriptorBufferInfo buffer{slot.uniform.buffer,offset,sizeof(Uniforms)};std::array<VkWriteDescriptorSet,22>writes{};for(uint32_t i=0;i<writes.size();++i){auto&w=writes[i];w={VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=slot.sets[index];w.dstBinding=i;w.descriptorCount=1;w.descriptorType=i==0?VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:i<4?VK_DESCRIPTOR_TYPE_SAMPLER:i<20?VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;if(!i)w.pBufferInfo=&buffer;else w.pImageInfo=&images[i-1];}
- s_->UpdateDescriptorSets(s_->dev.device,uint32_t(writes.size()),writes.data(),0,nullptr);s_->CmdBindPipeline(s_->ctx.cmd,VK_PIPELINE_BIND_POINT_COMPUTE,s_->pipelines[size_t(which)]);s_->CmdBindDescriptorSets(s_->ctx.cmd,VK_PIPELINE_BIND_POINT_COMPUTE,s_->layout,0,1,&slot.sets[index],0,nullptr);s_->CmdDispatch(s_->ctx.cmd,((dispatch.width?dispatch.width:out.extent.width)+7)/8,((dispatch.height?dispatch.height:out.extent.height)+7)/8,1);
+ s_->UpdateDescriptorSets(s_->dev.device,uint32_t(writes.size()),writes.data(),0,nullptr);s_->CmdBindPipeline(s_->ctx.cmd,VK_PIPELINE_BIND_POINT_COMPUTE,s_->pipelines[size_t(which)]);s_->CmdBindDescriptorSets(s_->ctx.cmd,VK_PIPELINE_BIND_POINT_COMPUTE,s_->layout,0,1,&slot.sets[index],0,nullptr);const uint32_t tsSlot=s_->ctx.frameSlot,tsAt=s_->tsCount[tsSlot];const bool timed=GpuTiming::on&&s_->tsReset[tsSlot]&&tsAt<Dispatches;if(timed)s_->CmdWriteTimestamp(s_->ctx.cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,s_->tsPool[tsSlot],2*tsAt); // HD G1
+ s_->CmdDispatch(s_->ctx.cmd,((dispatch.width?dispatch.width:out.extent.width)+7)/8,((dispatch.height?dispatch.height:out.extent.height)+7)/8,1);
+ if(timed){s_->CmdWriteTimestamp(s_->ctx.cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,s_->tsPool[tsSlot],2*tsAt+1);s_->tsKernel[tsSlot][tsAt]=uint8_t(which);s_->tsCount[tsSlot]=tsAt+1;}if(GpuTiming::on)++GpuTiming::dispatches; // HD G1
  s_->Barrier(out,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);if(second)s_->Barrier(*second,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);return true;
 }
 bool Gpu::Upload(Target&t,const void*bytes,size_t count){return UploadMip(t,0,bytes,count);}
@@ -142,13 +159,15 @@ bool Gpu::CopyFrame(Target&t){
  s_->Barrier(t,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_ACCESS_TRANSFER_WRITE_BIT);VkImageCopy c{};c.srcSubresource=c.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};c.extent={t.extent.width,t.extent.height,1};s_->CmdCopyImage(s_->ctx.cmd,s_->ctx.colorImage,s_->ctx.colorLayout,t.info.image,t.layout,1,&c);s_->Barrier(t,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);return true;
 }
 bool Gpu::Clear(Target&t,std::array<float,4>value){if(!s_||!s_->open||!t.handle)return false;s_->Barrier(t,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_ACCESS_TRANSFER_WRITE_BIT);VkClearColorValue color{};std::copy(value.begin(),value.end(),color.float32);VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,0,t.mipLevels,0,1};s_->CmdClearColorImage(s_->ctx.cmd,t.info.image,t.layout,&color,1,&range);s_->Barrier(t,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);return true;}
-Texture Gpu::Sample(Target&t){if(!s_||!s_->open||!t.handle)return {};s_->Barrier(t,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);return {t.info.view,t.layout};}
+// HD 2026-11-05 lot L21: a read after the barrier that already made every earlier write visible to shader reads (GENERAL)
+// needs no new barrier: read after read. Any write (dispatch output, copy, clear, upload) goes through Barrier, which clears readReady.
+Texture Gpu::Sample(Target&t){if(!s_||!s_->open||!t.handle)return {};if(!(t.readReady&&t.layout==VK_IMAGE_LAYOUT_GENERAL))s_->Barrier(t,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_SHADER_READ_BIT);return {t.info.view,t.layout};}
 bool Gpu::Shutdown(uint64_t completed){
  if(!s_)return true;if(s_->last>completed)return false;auto*p=s_;p->ctx.completedSerial=completed;for(auto&r:p->retiredVolumes)Retire(r);Retire(p->dummy);
  for(auto&slot:p->slots){if(slot.uniformHandle)p->api->RetireBuffer(slot.uniformHandle,slot.serial);if(slot.uploadHandle)p->api->RetireBuffer(slot.uploadHandle,slot.serial);}
  for(auto pipe:p->pipelines)if(pipe&&p->DestroyPipeline)p->DestroyPipeline(p->dev.device,pipe,nullptr);
  if(p->pool&&p->DestroyDescriptorPool)p->DestroyDescriptorPool(p->dev.device,p->pool,nullptr);if(p->layout&&p->DestroyPipelineLayout)p->DestroyPipelineLayout(p->dev.device,p->layout,nullptr);if(p->setLayout&&p->DestroyDescriptorSetLayout)p->DestroyDescriptorSetLayout(p->dev.device,p->setLayout,nullptr);
- for(auto sampler:{p->point,p->linear,p->wrap})if(sampler&&p->DestroySampler)p->DestroySampler(p->dev.device,sampler,nullptr);delete p;s_=nullptr;return true;
+ for(auto sampler:{p->point,p->linear,p->wrap})if(sampler&&p->DestroySampler)p->DestroySampler(p->dev.device,sampler,nullptr);for(auto pool:p->tsPool)if(pool&&p->DestroyQueryPool)p->DestroyQueryPool(p->dev.device,pool,nullptr); /* HD G1 */delete p;s_=nullptr;return true;
 }
 const char*Gpu::Error()const{return s_?s_->error:lastError_;}uint64_t Gpu::LastUsed()const{return s_?s_->last:0;}const WXL_VkStageContext*Gpu::Context()const{return s_&&s_->open?&s_->ctx:nullptr;}
 }

@@ -1142,6 +1142,14 @@ void CGxDevice::BufDestroy(CGxBuf*& buf) {
         return;
     }
 
+    // Do not leave the device's cached vertex/index source pointing at a buffer being deleted.
+    if (this->m_primVertexBuf == buf) {
+        this->m_primVertexBuf = nullptr;
+    }
+    if (this->m_primIndexBuf == buf) {
+        this->m_primIndexBuf = nullptr;
+    }
+
     if (buf->m_pool) {
         buf->m_pool->UnlinkBuf(buf);
     }
@@ -1871,6 +1879,24 @@ void CGxDevice::WaitForFPSCap() {
         return;
     }
 
+#if defined(WOWDECOMP_ARCH_64)
+    // HD P1 (HD 2026-11-04): the cap kept to the performance counter. The original sleeps whole milliseconds
+    // (Sleep, ~1-16 ms granularity) and restarts from the late wake-up, so a capped frame rate wobbles. Here each
+    // frame waits for its exact slot and the cadence is kept; a frame later than its slot starts the cadence again.
+    static int64_t s_nextFrameQpc = 0;
+    const int64_t frequency = OsQpcFrequency();
+    const int64_t period = frequency / maxFps;
+    const int64_t now = OsQpcNow();
+    if (s_nextFrameQpc - now > 0 && s_nextFrameQpc - now <= frequency) {
+        OsWaitUntilQpc(s_nextFrameQpc);
+        const int64_t woke = OsQpcNow();
+        // A wake-up more than 1 ms late (the system took the thread) starts again from it: no short frame to catch up.
+        s_nextFrameQpc = woke - s_nextFrameQpc > frequency / 1000 ? woke + period : s_nextFrameQpc + period;
+    } else {
+        s_nextFrameQpc = now + period;
+    }
+    (void)s_nextFrameTime;
+#else
     uint32_t frameMs = 1000 / maxFps;
     uint32_t now = OsGetAsyncTimeMs();
 
@@ -1880,6 +1906,7 @@ void CGxDevice::WaitForFPSCap() {
     }
 
     s_nextFrameTime = now + frameMs;
+#endif
 }
 
 // VERIFY: c1bc4801 manual

@@ -255,6 +255,19 @@ int32_t HD::LightsMode() {
     return mode < 0 || mode > 3 ? 0 : mode;
 }
 
+// HD 2026-11-04 lot T1: see HdLights.h. Same reach test, same arithmetic, as LightsForGround's candidate loop and
+// its sphere fallback; anything not yet gathered this frame, or the per-draw log, answers true (the original path).
+bool HD::LightsGroundNeeded(CM2Scene* scene, const CAaSphere& sphere) {
+    if (!scene || scene != s_frameScene || scene->m_frameStamp != s_frameStamp || s_logFrame) return true;
+    for (size_t i = 0; i < s_frame.size(); i++) {
+        const FrameLight& l = s_frame[i];
+        float dx = l.pos.x - sphere.c.x, dy = l.pos.y - sphere.c.y, dz = l.pos.z - sphere.c.z;
+        float reach = l.radius + sphere.r;
+        if (!(dx * dx + dy * dy + dz * dz >= reach * reach)) return true;
+    }
+    return false;
+}
+
 int32_t HD::LightsForSphere(CM2Scene* scene, const C3Vector& camera, const CAaSphere& sphere, float* out) {
     return HD::LightsForGround(scene, camera, sphere, nullptr, 0, out);
 }

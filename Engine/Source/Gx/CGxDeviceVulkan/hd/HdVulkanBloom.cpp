@@ -107,6 +107,9 @@ bool Effect::Record(const gxvk::vk::hdeffect::StageContext& ctx,const Settings& 
     auto&slot=s->slots[ctx.frameSlot];if(slot.serial==ctx.serial || slot.serial>ctx.completedSerial){s->error="bloom slot in flight/duplicate";return false;}
     if(!std::isfinite(settings.threshold)||!std::isfinite(settings.strength)||!std::isfinite(settings.rayStrength)){s->error="bloom non-finite settings";return false;}
     Settings config=settings;config.threshold=Sat(config.threshold);config.strength=std::clamp(config.strength,0.0f,5.0f);config.rayStrength=std::clamp(config.rayStrength,0.0f,5.0f);config.debug=std::clamp(config.debug,0,3);
+    // HD 2026-11-05 lot B1: a halo of strength 0 adds exactly nothing (composite: light 0 + scene*(1-0) = scene, alpha kept),
+    // so its 11 passes are skipped. Rays and the debug views keep their own path; the after-spells boundary is untouched.
+    if(config.strength<=0.0f && config.debug==0)config.bloom=false;
     bool readableDepth=ctx.depthView && (ctx.depthLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || ctx.depthLayout==VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL || ctx.depthLayout==VK_IMAGE_LAYOUT_GENERAL);
     Post post;bool havePost=BuildPost(ctx,config,post);bool rays=config.rays && readableDepth && havePost && (post.visible>.001f || config.debug>0);
     if(!config.bloom && !rays){s->error=config.rays?"bloom skipped: rays need forward scene depth and visible sun":"bloom off";return false;}

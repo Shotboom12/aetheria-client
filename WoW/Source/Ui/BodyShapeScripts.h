@@ -117,6 +117,97 @@ static int32_t Script_BodyShapeMeshStatus(lua_State* L) {
     return 4;
 }
 
+// JiggleSet(name, value) -> value. Names: enabled (0/1), breastHz, breastZeta, breastGain, breastMax, breastSide, breastRotate, breastDetune, breastUp, worldMix, turnMix,
+// buttHz, buttZeta, buttGain, buttMax. JiggleSet() alone lists nothing and returns the enabled flag.
+// JiggleStatus() -> enabled, breastBonesFound (0/1), breastBoneA, breastBoneB, pelvisFound (0/1) for the model last driven.
+static int32_t Script_JiggleSet(lua_State* L) {
+    JigglePhysics::Settings& cfg = JigglePhysics::Config();
+    if (!lua_isstring(L, 1) || !lua_isnumber(L, 2)) {
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+
+    const char* name = lua_tolstring(L, 1, nullptr);
+    const float value = static_cast<float>(lua_tonumber(L, 2));
+    struct Entry { const char* name; float* target; };
+    const Entry entries[] = {
+        { "breastHz", &cfg.breastHz }, { "breastZeta", &cfg.breastZeta }, { "breastGain", &cfg.breastGain },
+        { "breastMax", &cfg.breastMax }, { "breastSide", &cfg.breastSide }, { "worldMix", &cfg.worldMix }, { "turnMix", &cfg.turnMix }, { "breastRotate", &cfg.breastRotate }, { "breastDetune", &cfg.breastDetune }, { "breastUp", &cfg.breastUp }, { "buttHz", &cfg.buttHz },
+        { "buttZeta", &cfg.buttZeta }, { "buttGain", &cfg.buttGain }, { "buttMax", &cfg.buttMax },
+    };
+    if (!strcmp(name, "enabled")) {
+        cfg.enabled = value != 0.0f;
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+    for (const Entry& entry : entries) {
+        if (!strcmp(name, entry.name)) {
+            *entry.target = value;
+            lua_pushnumber(L, value);
+            return 1;
+        }
+    }
+    luaL_error(L, "Unknown jiggle setting %s", name);
+    return 0;
+}
+
+static int32_t Script_JiggleStatus(lua_State* L) {
+    CM2Model* model = BodyShape::Edited().model;
+    JigglePhysics::State empty;
+    JigglePhysics::State& state = model ? BodyShape::For(model).jiggle : empty;
+    lua_pushboolean(L, JigglePhysics::Active());
+    lua_pushboolean(L, state.hasBreasts);
+    lua_pushnumber(L, state.hasBreasts ? static_cast<double>(state.breastBone[0]) : -1.0);
+    lua_pushnumber(L, state.hasBreasts ? static_cast<double>(state.breastBone[1]) : -1.0);
+    lua_pushboolean(L, state.hasPelvis);
+    return 5;
+}
+
+// CapeSet(name, value) -> value, for live tuning of CapePhysics.h. Names: enabled (0/1), zeta, gain, heightPower, maxBack, maxForward, maxSide,
+// windMix, windMax, worldMix, turnMix, flare, customFlare, hz1..hz5. CapeSet() alone returns the enabled flag.
+// CapeStatus() -> active, chainFound (0/1), first cape bone index for the player model last driven (-1 if none).
+static int32_t Script_CapeSet(lua_State* L) {
+    CapePhysics::Settings& cfg = CapePhysics::Config();
+    if (!lua_isstring(L, 1) || !lua_isnumber(L, 2)) {
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+
+    const char* name = lua_tolstring(L, 1, nullptr);
+    const float value = static_cast<float>(lua_tonumber(L, 2));
+    struct Entry { const char* name; float* target; };
+    const Entry entries[] = {
+        { "zeta", &cfg.zeta }, { "gain", &cfg.gain }, { "heightPower", &cfg.heightPower }, { "maxBack", &cfg.maxBack },
+        { "maxForward", &cfg.maxForward }, { "maxSide", &cfg.maxSide }, { "windMix", &cfg.windMix }, { "windMax", &cfg.windMax },
+        { "worldMix", &cfg.worldMix }, { "turnMix", &cfg.turnMix }, { "flare", &cfg.flare }, { "customFlare", &cfg.customFlare },
+        { "hz1", &cfg.hz[0] }, { "hz2", &cfg.hz[1] }, { "hz3", &cfg.hz[2] }, { "hz4", &cfg.hz[3] }, { "hz5", &cfg.hz[4] },
+    };
+    if (!strcmp(name, "enabled")) {
+        cfg.enabled = value != 0.0f;
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+    for (const Entry& entry : entries) {
+        if (!strcmp(name, entry.name)) {
+            *entry.target = value;
+            lua_pushnumber(L, value);
+            return 1;
+        }
+    }
+    luaL_error(L, "Unknown cape setting %s", name);
+    return 0;
+}
+
+static int32_t Script_CapeStatus(lua_State* L) {
+    CM2Model* model = BodyShape::Edited().model;
+    auto it = model ? BodyShape::CapeStates().find(model) : BodyShape::CapeStates().end();
+    const bool found = it != BodyShape::CapeStates().end() && it->second.found;
+    lua_pushboolean(L, CapePhysics::Active());
+    lua_pushboolean(L, found);
+    lua_pushnumber(L, found ? static_cast<double>(it->second.bone[0]) : -1.0);
+    return 3;
+}
+
 static int32_t Script_ResetBodyShape(lua_State* L) {
     BodyShape::Reset();
     return 0;
@@ -260,6 +351,8 @@ static int32_t Script_BodyShapePasteCode(lua_State* L) {
     { "BodyShapeRegion", &Script_BodyShapeRegion }, \
     { "GetBodyShapeRange", &Script_GetBodyShapeRange }, \
     { "BodyShapeMeshStatus", &Script_BodyShapeMeshStatus }, \
+    { "JiggleSet", &Script_JiggleSet }, \
+    { "JiggleStatus", &Script_JiggleStatus },     { "CapeSet", &Script_CapeSet },     { "CapeStatus", &Script_CapeStatus }, \
     { "BodyShapeProbe", &Script_BodyShapeProbe }, \
     { "BodyShapeBoneInfo", &Script_BodyShapeBoneInfo }, \
     { "BodyShapeLog", &Script_BodyShapeLog }, \

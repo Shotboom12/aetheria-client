@@ -39,6 +39,7 @@ State& Mounts() {
 }
 }
 void SetPackedReader(PackedReader value) { reader.store(value); }
+bool HasPackedReader() { return reader.load() != nullptr; }
 PackedResult ReadPackedFile(const char* name, std::vector<uint8_t>* bytes, uint32_t& size, std::string& error) {
     const auto callback = reader.load();
     return callback ? callback(name, bytes, size, error) : PackedResult::Missing;

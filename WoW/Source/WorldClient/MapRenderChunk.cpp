@@ -2,6 +2,7 @@
 #include "MapRenderChunk.h"
 #include <cmath>
 #include <cstring>
+#include <cstdlib> // HD 2026-11-04 lot C3 (atoi)
 #include "Engine/Source/Gx/CGxBuf.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/CGxPool.h"
@@ -11,6 +12,9 @@
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/Tempest/CImVector.h"
 #include "Engine/Source/Model2/M2Light.h"
+#include "WoW/Source/WorldClient/HD/HdCataRenderPerf.h" // HD 2026-11-04 lot C2
+#include "Engine/Source/ConsoleBase/ConsoleVar.h" // HD 2026-11-04 lot C3
+#include "Engine/Source/ConsoleBase/Types.h"
 #include "Engine/Source/Model2/M2Scene.h"
 #include "Engine/Source/Gx/CGxDevice/CGxShader.h"
 #include "Engine/Source/ShaderEffect/ShaderEffect.h"
@@ -25,6 +29,8 @@
 #include "WoW/Source/WorldClient/SurfaceCover.h"
 #include "WoW/Source/WorldClient/Types.h"
 #include "WoW/Source/WorldClient/World.h"
+#include "WoW/Source/WorldClient/HD/HdTerrain.h"
+#include "WoW/Source/WorldClient/HD/HdLights.h" // HD 2026-11-04 lot T1
 #if defined(_MSC_VER)
 #include <malloc.h>
 #else
@@ -585,7 +591,28 @@ CMapRenderChunk::~CMapRenderChunk() {
 
 // VERIFY: 2d552482 manual
 // OFFSET: 0x007BA600
+// HD 2026-11-04 lot C3: hdTerrainPool, terrain pool size x N (1 = native). The native pool holds 2r^2+1 chunks
+// (r = far clip in chunks) and keeps a chunk's buffer 2 s after it leaves the view: turning the camera fills it, the
+// remaining chunks get stream buffers and rebuild their vertices every frame (measured 4 nov: ~800 a frame, the
+// terrain stage doubles in the turning hitches). Same vertices either way: same image.
+static CVar* s_hdTerrainPool;
+
+static bool HdTerrainPoolChanged(CVar*, const char*, const char* value, void*) {
+    int32_t factor = value ? atoi(value) : 0;
+
+    if (factor < 1 || factor > 8) {
+        return false;
+    }
+
+    CMapRenderChunk::SetDirty(); // pools rebuilt by the native path below
+    return true;
+}
+
 void CMapRenderChunk::UpdatePools() {
+    if (!s_hdTerrainPool) {
+        s_hdTerrainPool = CVar::Register("hdTerrainPool", "HD: terrain buffer pool x N (1 = native size, 1..8); past the pool the terrain rebuilds its vertices every frame", 1, "4", HdTerrainPoolChanged, CATEGORY_GRAPHICS, false, nullptr, false);
+    }
+
     if (!CMapRenderChunk::s_bPoolsDirty) {
         return;
     }
@@ -595,6 +622,8 @@ void CMapRenderChunk::UpdatePools() {
 
     int32_t radius = 1 - static_cast<int32_t>(World::s_farClip * -0.03f);
     uint32_t count = (2 * radius * radius + 1) & ~1u;
+    const int32_t hdFactor = s_hdTerrainPool ? s_hdTerrainPool->m_intValue : 1; // HD 2026-11-04 lot C3
+    count *= hdFactor >= 1 && hdFactor <= 8 ? static_cast<uint32_t>(hdFactor) : 1u; // stays even
 
     CMapRenderChunk::s_pnEstimateVertex = 145 * count;
     CMapRenderChunk::s_pnEstimateIndex = 768 * count;
@@ -682,6 +711,7 @@ void CMapRenderChunk::UseStreamingBufs() {
         indexCount *= 2;
     }
 
+    HD::CataRenderPerf::Add(HD::CataRenderPerf::Counter::TerrainStreamed); // HD 2026-11-04 lot C2
     CGxBuf* vertexBuf = g_theGxDevicePtr->BufStream(GxPoolTarget_Vertex, stride, vertexCount);
     CGxBuf* indexBuf = g_theGxDevicePtr->BufStream(GxPoolTarget_Index, 2, indexCount);
 
@@ -776,6 +806,10 @@ void CMapRenderChunk::RenderSolidVertexPixelShader() {
 void CMapRenderChunk::RenderPrep() {
     if (!this->m_chunkBuf) {
         this->m_chunkBuf = CMapRenderChunk::AllocBuf(this->m_unkFlags & 0x3, this);
+
+        if (!this->m_chunkBuf) {
+            HD::CataRenderPerf::Add(HD::CataRenderPerf::Counter::TerrainPoolFull); // HD 2026-11-04 lot C2
+        }
     }
 
     if (this->m_chunkBuf) {
@@ -2125,7 +2159,10 @@ void CMapRenderChunk::SetVertexShader(CMapRenderChunk* renderChunk, int32_t laye
     // sphere also bounds what stands on it, ~50 yards, and ranked every lamp inside it as equally near)
     C3Vector ground[50];
     int32_t groundCount = 0;
-    for (int32_t m = 0; m < 2; m++) {
+    // HD 2026-11-04 lot T1: the 50 points only when a lamp of this frame reaches the chunk (otherwise none is picked
+    // with or without them: HD::LightsGroundNeeded). Same constants, same image.
+    const bool hdGroundNeeded = HD::LightsGroundNeeded(World::s_m2Scene, renderChunk->m_sphere);
+    for (int32_t m = 0; m < 2 && hdGroundNeeded; m++) {
         CMapChunk* mapChunk = renderChunk->m_mapChunks[m];
         if (!mapChunk || !mapChunk->m_height) continue;
         for (int32_t r = 0; r <= 8; r += 2) {

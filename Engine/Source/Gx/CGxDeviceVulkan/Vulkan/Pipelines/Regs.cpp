@@ -138,6 +138,7 @@ namespace gxvk::vk::pipelines::detail
             if (ss.regsUsed == ss.regsCount && !CreateChunk(ss))
             {
                 ++s.stats.regsFull;
+                if (!s.warnedRegsFull) { s.warnedRegsFull = true; Write(Warn, "vulkan: pipelines: the uniform ring is exhausted (%u chunks of %u KiB); draws are refused until the next frame (logged once)", kMaxRegsChunks, kRegsChunkBytes / 1024); }
                 return false;
             }
             ++ss.regsUsed;

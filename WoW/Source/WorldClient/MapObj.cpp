@@ -5,6 +5,7 @@
 #endif
 #include "Engine/Source/Gx/CGxDeviceVulkan/hd/lamp/HdLampHooks.h"
 #include "MapObj.h"
+#include "Engine/Source/Model2/HdExtraLamps.h" // HD J1
 #include <cstdlib>
 #include <malloc.h>
 #include <new>
@@ -2706,6 +2707,7 @@ void CMapObj::CreateRefs(CMapObj* mapObj, CMapObjGroup* mapObjGroup, CMapObjDef*
         } else {
             mapDoodadDef->m_flags = static_cast<MapObjFlag>(mapDoodadDef->m_flags | 0x2);
         }
+        HD::ExtraLamps::SetInteriorModel(mapDoodadDef->m_model, (mapDoodadDef->m_flags & MAPOBJ_FLAG_INTERIOR) != 0); // HD J1: lamps indoors stay lit by day
     }
 
     mapObjDefGroup->m_flags = static_cast<MapObjFlag>(mapObjDefGroup->m_flags | 0x8);

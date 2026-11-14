@@ -1766,7 +1766,7 @@ bool InitializeGlobal() {
     AlteredFormRacesCallback(alteredForms, nullptr, alteredForms->m_stringValue.m_str, nullptr);
 
     // Custom: character creation druid form preview (see DruidForms_CharacterCreate.lua)
-    CVar* skinColorRaces = CVar::Register("shapeshiftSkinColorRaces", "Races whose shapeshift models follow skin (fur) color, not hair color (must match the current server rule; Tauren only)", 0, "6", ShapeshiftSkinColorRacesCallback, CATEGORY_DEFAULT, false, nullptr, false);
+    CVar* skinColorRaces = CVar::Register("shapeshiftSkinColorRaces", "Races whose shapeshift models follow skin (fur) color, not hair color (must match the server Shapeshift.SkinColorRaces; Tauren and Highmountain Tauren)", 0, "6,46", ShapeshiftSkinColorRacesCallback, CATEGORY_DEFAULT, false, nullptr, false);
     ShapeshiftSkinColorRacesCallback(skinColorRaces, nullptr, skinColorRaces->m_stringValue.m_str, nullptr);
     CVar::Register("druidFormPreview", "Show the druid form preview in character creation", 0, "1", nullptr, CATEGORY_DEFAULT, false, nullptr, false);
 

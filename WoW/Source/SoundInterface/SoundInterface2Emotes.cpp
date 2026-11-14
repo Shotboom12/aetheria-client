@@ -27,7 +27,7 @@ TEXTEMOTELOOKUP::TEXTEMOTELOOKUP() {
 int32_t SI2::GetTextEmoteSoundID(uint32_t emotesTextId, uint32_t race, uint32_t sex) {
     TEXTEMOTELOOKUP* lookup;
 
-    if (emotesTextId < s_textEmoteLookupById.Count() && (lookup = s_textEmoteLookupById[emotesTextId]) != nullptr && race < 22 && sex < 2) {
+    if (emotesTextId < s_textEmoteLookupById.Count() && (lookup = s_textEmoteLookupById[emotesTextId]) != nullptr && race < kTextEmoteMaxRaces && sex < 2) {
         return lookup->m_soundIds[race][sex];
     }
 
@@ -40,7 +40,7 @@ int32_t SI2::GetTextEmoteSoundIndex(uint32_t emotesTextId, uint32_t race, uint32
     TEXTEMOTELOOKUP* lookup;
     int32_t soundKitId;
 
-    if (emotesTextId < s_textEmoteLookupById.Count() && (lookup = s_textEmoteLookupById[emotesTextId]) != nullptr && race < 22 && sex < 2) {
+    if (emotesTextId < s_textEmoteLookupById.Count() && (lookup = s_textEmoteLookupById[emotesTextId]) != nullptr && race < kTextEmoteMaxRaces && sex < 2) {
         soundKitId = lookup->m_soundIds[race][sex];
     } else {
         soundKitId = 0;
@@ -81,6 +81,12 @@ void SI2::InitEmoteSounds() {
 
     s_numTextEmotes = count;
 
+    // Aetheria: s_textEmoteLookupById stores raw pointers into s_textEmoteLookups. A growable array moves its storage when it
+    // grows (chunks of 8 elements), which left those pointers dangling and corrupted the heap once TEXTEMOTELOOKUP grew to
+    // 1,028 bytes (race limit 22 -> 128). Reserve the final capacity up front so the elements never move. `count` is an upper
+    // bound of the distinct text-emote ids (it counts id changes between consecutive rows).
+    s_textEmoteLookups.Reserve(static_cast<uint32_t>(count), 0);
+
     for (int32_t i = 0; i < g_emotesTextSoundDB.m_numRecords; i++) {
         EmotesTextSoundRec* rec = (i < 0 || i >= g_emotesTextSoundDB.m_numRecords) ? nullptr : &g_emotesTextSoundDB.m_records[i];
         uint32_t id = rec->m_emotesTextID;
@@ -96,7 +102,7 @@ void SI2::InitEmoteSounds() {
             (*slot)->m_emotesTextId = rec->m_emotesTextID;
         }
 
-        if (static_cast<uint32_t>(rec->m_raceID) < 22 && static_cast<uint32_t>(rec->m_sexID) < 2) {
+        if (static_cast<uint32_t>(rec->m_raceID) < kTextEmoteMaxRaces && static_cast<uint32_t>(rec->m_sexID) < 2) {
             (*slot)->m_soundIds[rec->m_raceID][rec->m_sexID] = rec->m_soundID;
         }
     }

@@ -4,7 +4,7 @@
 namespace HD::Fsr {
 class Core;
 namespace Runtime {
-// Step A of the integration: the AMD runtime is loaded and asked for its providers on the
+// Step A of the integration (POUR-CLAUDE.md): the AMD runtime is loaded and asked for its providers on the
 // device the game created, the device's features and formats are checked, and both statuses say what stands.
 // Nothing here changes an image: no context is created, no dispatch is recorded.
 void Startup();  // render thread, once the Vulkan device exists (CGxDeviceVulkan::DeviceCreate)

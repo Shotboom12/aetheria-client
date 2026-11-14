@@ -2,7 +2,11 @@
 #include "Engine/Source/Retail/PackedMounts.h"
 #include "Engine/Source/Retail/BusyNotice.h"
 #include "Engine/Source/Retail/DecodedCache.h"
+#include "Engine/Source/Retail/PackedArchives.h"
 #include "Engine/Source/Retail/RetailModel.h"
+#include "Engine/Source/Retail/RetailWmo.h"
+#include "Engine/Source/Retail/RetailTerrain.h"
+#include <array>
 #include "Engine/Source/Retail/ClientTables.h"
 #include "Engine/Source/Retail/SlimeGiant.h"
 #include "Engine/Source/Retail/Centaur.h"
@@ -58,6 +62,31 @@ bool TableName(const std::string& name) {
     return false;
 }
 bool Failure(std::string& error, const char* message) { error = message; return false; }
+
+// 3.3.5 draws only power-of-two textures (others show as the green missing-texture fill); retail's decor thumbnails
+// are 400 x 400 DXT. Copies mip 0's blocks into the top-left of the next power-of-two canvas, padding with zero blocks
+// and dropping the mip chain; the UI crops back with SetTexCoord. Leaves anything else untouched.
+void PadBlpToPowerOfTwo(std::vector<uint8_t>& bytes) {
+    const auto u32 = [&](size_t at) { uint32_t v; std::memcpy(&v, bytes.data() + at, 4); return v; };
+    const uint32_t w = u32(12), h = u32(16), offset = u32(20), size = u32(84);
+    const auto pow2 = [](uint32_t v) { uint32_t p = 1; while (p < v) p <<= 1; return p; };
+    if (bytes[8] != 2 || !w || !h || w > 2048 || h > 2048 || (w % 4) || (h % 4) || (pow2(w) == w && pow2(h) == h))
+        return;
+    const uint32_t block = bytes[10] == 0 ? 8 : 16; // DXT1, else DXT3/DXT5
+    const uint32_t rowBytes = w / 4 * block, rows = h / 4, W = pow2(w), H = pow2(h), outRow = W / 4 * block;
+    if (size < rowBytes * rows || uint64_t(offset) + rowBytes * rows > bytes.size()) return;
+    constexpr uint32_t data = 148 + 1024; // header, then BLP2's 256-entry palette (unused by DXT)
+    std::vector<uint8_t> out(data + size_t(outRow) * (H / 4), 0);
+    std::memcpy(out.data(), bytes.data(), 12);
+    out[11] = 0; // no mips
+    const uint32_t header[] = { W, H, data, outRow * (H / 4) };
+    std::memcpy(out.data() + 12, header, 8);
+    std::memcpy(out.data() + 20, header + 2, 4);
+    std::memcpy(out.data() + 84, header + 3, 4);
+    for (uint32_t y = 0; y < rows; ++y)
+        std::memcpy(out.data() + data + size_t(y) * outRow, bytes.data() + offset + size_t(y) * rowBytes, rowBytes);
+    bytes.swap(out);
+}
 bool CascFailure(std::string& error, const char* operation) {
     error = std::string(operation) + " (CascLib error " + std::to_string(GetCascError()) + ")";
     return false;
@@ -107,6 +136,19 @@ struct CascSource::Impl {
     std::string path, product = "wow", region = "us", build, keys, tables, cache, tablePolicy = "tables";
     SourceKind kind = SourceKind::Retail;
     Statistics stats;
+    PackedArchives packed;
+    // The client's SFile reader (registered through PackedMounts) serves root Data/patch-*.MPQ originals; standalone
+    // tools have no reader and use PackedArchives (StormLib) instead. -1 invalid, 0 absent, 1 read.
+    int ReadPacked(const char* name, std::vector<uint8_t>& bytes, std::string& error, uint32_t* size) {
+        if (HasPackedReader()) {
+            uint32_t found = 0;
+            const auto result = ReadPackedFile(name, &bytes, found, error);
+            if (result == PackedResult::Invalid) return -1;
+            if (result == PackedResult::Ready) { if (size) *size = found; return 1; }
+            return 0;
+        }
+        return packed.Read(name, bytes, error, size);
+    }
     std::string Prefix() const { return kind == SourceKind::MountStudio ? "mountstudio/" : kind == SourceKind::Forever ? "forever/" : "retail/"; }
     PackedResult Packed(const Reference& ref, std::vector<uint8_t>* bytes, uint32_t& size, std::string& error) {
         if (!configured || !ref.id) return PackedResult::Missing;
@@ -120,6 +162,8 @@ struct CascSource::Impl {
     std::string configurationError = "RetailCasc.ini has not been configured";
     std::map<std::string, uint32_t> names;
     std::map<std::string, Reference> dependencies;
+    std::map<std::string, std::array<uint32_t, 2>> terrainTiles; // <map>_<x>_<y>.adt -> obj0, tex0 (root is the dependency)
+    std::map<uint32_t, TileTextures> terrainEdges; // by _tex0 FileDataID
     std::map<std::string, std::pair<std::shared_ptr<Model>, size_t>> models;
     std::map<std::string, uint32_t> cachedSizes;
     std::set<uint32_t> characterModels;
@@ -189,6 +233,19 @@ struct CascSource::Impl {
             if (result == PackedResult::Ready) return true;
             if (result == PackedResult::Missing) error = "Missing original asset in MountStudio MPQ";
             return false; // Never resolve this build through unrelated CDN/cache sources.
+        }
+        if (configured && ref.id && !build.empty() && !lenient)
+        {
+            const auto name = "EsteriaRetail\\" + product + "-" + build + "\\" + std::to_string(locale)
+                + "\\" + std::to_string(ref.id) + ".bin";
+            const int packed = ReadPacked(name.c_str(), bytes, error, nullptr);
+            if (packed < 0)
+                return false;
+            if (packed > 0)
+            {
+                ++stats.reused;
+                return true;
+            }
         }
         if (files) {
             if (!configured || !ref.id) return Failure(error, "Offline Retail packs require configured FileDataID references");
@@ -497,6 +554,7 @@ bool CascSource::Configure(const char* configPath, std::string& error) {
     s.creatures = std::move(creatures);
     s.names = std::move(names);
     s.handItems = std::move(handItems);
+    if (!HasPackedReader() && !s.packed.Open(base, path, error)) return false;
     s.configured = true;
     return true;
     } catch (const std::filesystem::filesystem_error& exception) {
@@ -601,6 +659,16 @@ bool CascSource::ExistsOwn(const char* name, std::string& error) {
         uint32_t size = 0;
         return m_impl->Packed(ref, nullptr, size, error) == PackedResult::Ready;
     }
+    if (ref.id && !m_impl->build.empty())
+    {
+        const auto path = "EsteriaRetail\\" + m_impl->product + "-" + m_impl->build + "\\"
+            + std::to_string(m_impl->locale) + "\\" + std::to_string(ref.id) + ".bin";
+        std::vector<uint8_t> original;
+        uint32_t size = 0;
+        const int found = m_impl->ReadPacked(path.c_str(), original, error, &size);
+        if (found)
+            return found > 0;
+    }
     if (m_impl->files) return ref.id && std::filesystem::is_regular_file(std::filesystem::path(m_impl->path) / (std::to_string(ref.id) + ".bin"));
     std::vector<uint8_t> cached;
     const auto path = m_impl->CachePath(ref, internal, false);
@@ -673,6 +741,11 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
         } else {
             success = success && PrepareModel(bytes, model->bytes, model->files, error, skeleton.empty() ? nullptr : &skeleton);
         }
+        // This water-ripple sheet's emitter is additive with a cyan texture (2904679) and relies on the retail EXP2 data the
+        // legacy emitter ignores, so it floods the pool neon green. The same sheet without an emitter (2903897) draws fine.
+        // shortcut: only this model, by id; read EXP2's alpha cutoff if other emitters show the same tint.
+        if (success && s.kind == SourceKind::Retail && ref.id == 2904371 && model->bytes.size() >= 0x12C)
+            std::memset(&model->bytes[0x128], 0, 4);
         if (success && model->slimeGiant) success = SlimeGiant::PrepareModel(model->bytes, ref.id, error);
         if (success && model->centaur) success = Centaur::PrepareModel(model->bytes, ref.id, error);
         if (success && model->ethereal && model->ethereal != Ethereal::Bodies[2])
@@ -731,8 +804,77 @@ bool CascSource::Read(const char* name, std::vector<uint8_t>& bytes, std::string
         // BLP2 format version 1 is the existing client's native texture format.
         success = bytes.size() >= 148 && std::memcmp(bytes.data(), "BLP2\1\0\0\0", 8) == 0;
         if (!success) error = "Retail texture is not a supported BLP2 file";
+        if (success) PadBlpToPowerOfTwo(bytes);
+    } else if (ext == ".wmo") {
+        std::vector<uint8_t> prepared;
+        if (IsWmoGroup(bytes)) {
+            success = PrepareWmoGroup(bytes, prepared, error);
+        } else {
+            std::vector<uint32_t> groups;
+            success = PrepareWmoRoot(bytes, prepared, groups, error);
+            // CMapObj::ReadGroup opens <root>_NNN.wmo; GFID says which file each one is. Kept for the
+            // source's lifetime like any alias: a few bytes per group, and the name never changes meaning.
+            const auto base = key.substr(0, key.find_last_of('.'));
+            for (size_t i = 0; success && i < groups.size(); ++i) {
+                if (!groups[i]) continue;
+                char suffix[16];
+                std::snprintf(suffix, sizeof(suffix), "_%03u.wmo", static_cast<unsigned>(i));
+                s.dependencies[base + suffix] = Reference{groups[i]};
+            }
+        }
+        if (success) bytes = std::move(prepared);
+    } else if (ext == ".wdt") {
+        // CMap::LoadArea opens <map>_<x>_<y>.adt beside the WDT; MAID says which three split files make each tile.
+        std::vector<uint8_t> prepared;
+        std::vector<WdtTile> tiles;
+        success = PrepareWdt(bytes, prepared, tiles, error);
+        const auto base = key.substr(0, key.find_last_of('.'));
+        for (size_t i = 0; success && i < tiles.size(); ++i) {
+            const auto name = base + "_" + std::to_string(tiles[i].x) + "_" + std::to_string(tiles[i].y) + ".adt";
+            s.dependencies[name] = Reference{tiles[i].root};
+            s.terrainTiles[name] = {tiles[i].obj0, tiles[i].tex0};
+            // The minimap's own path for the tile (MinimapFrame falls back to it when md5translate.trs has no entry):
+            // textures/minimap/<map directory>/map<x>_<yy>.blp, as 3.3.5 names minimap tiles.
+            const auto dir = base.substr(0, base.find_last_of('/'));
+            if (tiles[i].minimap && dir.find('/') != std::string::npos) {
+                char tileName[32];
+                std::snprintf(tileName, sizeof(tileName), "/map%u_%02u.blp", tiles[i].x, tiles[i].y);
+                s.dependencies["textures/minimap/" + dir.substr(dir.find_last_of('/') + 1) + tileName] = Reference{tiles[i].minimap};
+            }
+        }
+        if (success) bytes = std::move(prepared);
+    } else if (ext == ".adt") {
+        const auto tile = s.terrainTiles.find(key);
+        std::vector<uint8_t> obj0, tex0, prepared;
+        success = tile != s.terrainTiles.end() ? true : Failure(error, "Open the Retail WDT before its tiles");
+        success = success && s.Fetch(Reference{tile->second[0]}, "", obj0, error)
+            && s.Fetch(Reference{tile->second[1]}, "", tex0, error);
+        if (success) {
+            // <base>_<x>_<y>.adt: the four tiles around this one, so ground textures carry over the shared edges.
+            const TileTextures* adjoining[4] = {};
+            const size_t yAt = key.find_last_of('_'), xAt = yAt == std::string::npos ? yAt : key.find_last_of('_', yAt - 1);
+            if (xAt != std::string::npos) {
+                const int x = std::atoi(key.c_str() + xAt + 1), y = std::atoi(key.c_str() + yAt + 1);
+                const int steps[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                for (int side = 0; side < 4; ++side) {
+                    const auto next = s.terrainTiles.find(key.substr(0, xAt + 1) + std::to_string(x + steps[side][0]) + "_" + std::to_string(y + steps[side][1]) + ".adt");
+                    if (next == s.terrainTiles.end()) continue;
+                    auto cached = s.terrainEdges.find(next->second[1]);
+                    if (cached == s.terrainEdges.end()) {
+                        std::vector<uint8_t> nextTex;
+                        std::string ignored; // a neighbour that won't read only costs a seam
+                        TileTextures read;
+                        if (s.Fetch(Reference{next->second[1]}, "", nextTex, ignored)) ReadTileTextures(nextTex, read);
+                        cached = s.terrainEdges.emplace(next->second[1], std::move(read)).first;
+                    }
+                    adjoining[side] = &cached->second;
+                }
+            }
+            success = PrepareAdt(bytes, obj0, tex0, prepared, error, adjoining);
+        }
+        if (success) bytes = std::move(prepared);
     } else {
-        success = Failure(error, "Retail runtime supports M2, SKIN, ANIM and BLP references only");
+        success = Failure(error, "Retail runtime supports M2, SKIN, ANIM, BLP, WMO, WDT and ADT references only");
     }
     if (!success) bytes.clear();
     else s.cachedSizes[key] = static_cast<uint32_t>(bytes.size());
@@ -764,6 +906,15 @@ bool CascSource::CachedOriginalSize(const char* name, uint32_t& size) {
     if (!m_impl->Resolve(key, ref, internal, error)) return false;
     if (m_impl->kind == SourceKind::MountStudio)
         return m_impl->Packed(ref, nullptr, size, error) == PackedResult::Ready;
+    if (ref.id && !m_impl->build.empty())
+    {
+        const auto packed = "EsteriaRetail\\" + m_impl->product + "-" + m_impl->build + "\\"
+            + std::to_string(m_impl->locale) + "\\" + std::to_string(ref.id) + ".bin";
+        std::vector<uint8_t> original;
+        const int found = m_impl->ReadPacked(packed.c_str(), original, error, &size);
+        if (found)
+            return found > 0;
+    }
     if (m_impl->files) {
         std::error_code ec;
         const auto length = std::filesystem::file_size(std::filesystem::path(m_impl->path) / (std::to_string(ref.id) + ".bin"), ec);

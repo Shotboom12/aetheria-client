@@ -65,6 +65,7 @@ static uint32_t unk_D1C4E8;
 // hundreds of refills a frame). 0 = native 128.
 static CVar* s_hdGrassBuffers;
 static CVar* s_hdGrassKeep;
+uint32_t HD::g_detailDoodadClock = 0; // HD 2026-11-04 lot C2 (HdDetailDoodad.h)
 
 // HD: hdGrassFillBudget, grass batches filled per frame at most (0 = no limit). The sort list runs near to far, so
 // the near grass is filled first and a far batch past the budget waits a frame or two (not drawn meanwhile).
@@ -319,7 +320,7 @@ static void AcquireBuffers(uint32_t vertexCount, CGxBuf** vertexBuf, uint32_t in
 
         while (!HdPackPlace(CDetailDoodad::s_freeGxBufs[count - 2], vertexCount, CDetailDoodad::s_freeGxBufs[count - 1], indexCount)) {
             // m_age >= 2: not drawn this frame nor the last one (freeing bytes drawn this frame would copy the pool)
-            while (oldest && (oldest->m_age < 2 || !oldest->HasBatches())) {
+            while (oldest && (HD::g_detailDoodadClock - oldest->m_age < 2 || !oldest->HasBatches())) { // HD 2026-11-04 lot C2: age from the grass clock
                 oldest = CMap::s_detailDoodadUpdateList.Next(oldest);
             }
 
@@ -492,7 +493,7 @@ void CDetailDoodad::UpdateAlphaRampTexture(EGxTexCommand command, uint32_t width
 // VERIFY: c5224796 manual
 // OFFSET: 0x007B12B0
 void CDetailDoodadInstBatch::FillIndices() {
-    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::GrassFill);
+    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::GrassBake); // HD 2026-11-05 lot H2: own stage (was GrassFill, counted twice)
     uint16_t* indices = reinterpret_cast<uint16_t*>(g_theGxDevicePtr->BufLock(this->m_indexBuf));
     uint32_t index = 0;
     uint32_t base = 0;
@@ -630,7 +631,7 @@ void CDetailDoodadData::ModelLoadedCallback(CM2Model* model, void* arg) {
 // VERIFY: 69235ba2 manual
 // OFFSET: 0x007B1B50
 void CDetailDoodadInstBatch::FillVertices() {
-    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::GrassFill);
+    HD::CataRenderPerf::Scope hdPerf(HD::CataRenderPerf::Stage::GrassBake); // HD 2026-11-05 lot H2: own stage (was GrassFill, counted twice)
     HD::CataRenderPerf::Add(HD::CataRenderPerf::Counter::GrassFills);
     CGxBuf* buf = this->m_vertexBuf;
     CGxVertexPNCT* vertex = reinterpret_cast<CGxVertexPNCT*>(g_theGxDevicePtr->BufLock(buf));
@@ -1263,7 +1264,7 @@ CDetailDoodadInst::CDetailDoodadInst() {
 #ifdef WOWDECOMP_FSR
     HD::Fsr::Rigid::Forget(this);
 #endif
-    this->m_age = 0;
+    this->m_age = HD::g_detailDoodadClock; // HD 2026-11-04 lot C2: age 0 (grass clock)
     this->m_densityLevel = 0;
     this->m_chunk = nullptr;
 }

@@ -7,6 +7,9 @@
 #include <climits>
 #include <cmath>
 #include <map>
+#include <set>
+#include <utility>
+#include <vector>
 #include "Engine/Source/Gx/GxSeam.h"
 #include "Engine/Source/Tempest/CFrustum.h"
 #include "WoW/Source/LiquidSystem/Liquid.h"
@@ -22,6 +25,14 @@ namespace {
 
     const float kBoxBelow = 1000.0f; // yards under the lowest frustum corner the widened box reaches
     const float kBoxAbove = 4000.0f; // yards over the highest one (tall things far away still reflect)
+
+    // HD L19: every queued chunk water instance's height range this frame, by its geometry factory (read by HdCataWater).
+    std::map<const Liquid::IGeomFactory*, std::pair<float, float>> s_chunkRanges;
+    // HD L19b: the batches joined to the plane's water this frame (CataMirrorInChain).
+    std::set<const Liquid::IGeomFactory*> s_chain;
+    const float kChainGap = 1.0f;     // yards: two batches whose chunk boxes are this close are neighbours
+    const float kChainHeight = 0.25f; // yards: their water ranges must meet within this
+    const size_t kChainMax = 1024;    // batches looked at (a frame queues far fewer)
 
     // The widened culling volume as 8 corners in CFrustum's layout (0..3 near, 4..7 far; left-bottom, left-top,
     // right-top, right-bottom): a box around the main frustum, its long axis the camera's ground direction, reaching
@@ -70,6 +81,8 @@ namespace {
 
 void HD::CataMirrorChoosePlane() {
     GxCataPlane& plane = g_gxCataPlane;
+    s_chunkRanges.clear();   // HD L19
+    s_chain.clear();         // HD L19b
     if (!plane.m_wanted) {
         plane.m_valid = 0;
         return;
@@ -81,6 +94,7 @@ void HD::CataMirrorChoosePlane() {
 
     struct Range { float low, high, distance; };
     std::map<Liquid::CInstance*, Range> candidates;
+    std::map<Liquid::CInstance*, CAaBox> chunkBoxes;   // HD L19b: the batch's ground footprint (its chunks' boxes)
     const C3Vector& camera = CWorldScene::s_activeWorldView;
     for (CChunkLiquid* water = CMap::s_mapChunkLiquidUpdateList.Head(); water;
          water = CMap::s_mapChunkLiquidUpdateList.Next(water)) {
@@ -93,6 +107,14 @@ void HD::CataMirrorChoosePlane() {
         float dy = std::max(std::max(box.b.y - camera.y, camera.y - box.t.y), 0.0f);
         float dz = camera.z - box.t.z;
         float distance = dx * dx + dy * dy + dz * dz;
+        {   // HD L19b
+            auto footprint = chunkBoxes.find(instance);
+            if (footprint == chunkBoxes.end()) chunkBoxes.emplace(instance, box);
+            else {
+                footprint->second.b.x = std::min(footprint->second.b.x, box.b.x); footprint->second.b.y = std::min(footprint->second.b.y, box.b.y);
+                footprint->second.t.x = std::max(footprint->second.t.x, box.t.x); footprint->second.t.y = std::max(footprint->second.t.y, box.t.y);
+            }
+        }
         auto entry = candidates.find(instance);
         if (entry == candidates.end()) candidates.emplace(instance, Range{box.b.z, box.t.z, distance});
         else {
@@ -100,6 +122,10 @@ void HD::CataMirrorChoosePlane() {
             entry->second.high = std::max(entry->second.high, box.t.z);
             entry->second.distance = std::min(entry->second.distance, distance);
         }
+    }
+    // HD L19: the same ranges by geometry factory, for HdCataWater's reflection test (chunk water only).
+    for (const auto& entry : candidates) {
+        if (entry.first->m_geomFactory) s_chunkRanges[entry.first->m_geomFactory] = std::make_pair(entry.second.low, entry.second.high);
     }
     // Map object water (Stormwind's canals, harbours inside a map object): the queued transparent instances whose
     // factory is a group's mesh, at their real height (CataMirrorMeshWaterBox), not the group sphere's centre.
@@ -129,6 +155,34 @@ void HD::CataMirrorChoosePlane() {
             plane.m_valid = 1;
         }
     }
+    // HD L19b: the chunk batches joined to the plane's water, neighbour after neighbour (see CataMirrorInChain).
+    if (plane.m_valid) {
+        struct Node { const Liquid::IGeomFactory* factory; float low, high, bx, by, tx, ty; bool joined; };
+        std::vector<Node> nodes;
+        for (const auto& entry : chunkBoxes) {
+            if (nodes.size() >= kChainMax) break;
+            auto range = candidates.find(entry.first);
+            if (range == candidates.end() || !entry.first->m_geomFactory) continue;
+            const float low = range->second.low, high = range->second.high;
+            if (!std::isfinite(low) || !std::isfinite(high)) continue;
+            nodes.push_back(Node{entry.first->m_geomFactory, low, high, entry.second.b.x, entry.second.b.y, entry.second.t.x, entry.second.t.y,
+                                 plane.m_height >= low - kChainHeight && plane.m_height <= high + kChainHeight});
+        }
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            for (Node& n : nodes) {
+                if (n.joined) continue;
+                for (const Node& m : nodes) {
+                    if (!m.joined) continue;
+                    const bool besides = n.bx <= m.tx + kChainGap && m.bx <= n.tx + kChainGap && n.by <= m.ty + kChainGap && m.by <= n.ty + kChainGap;
+                    const bool heightsMeet = n.low <= m.high + kChainHeight && m.low <= n.high + kChainHeight;
+                    if (besides && heightsMeet) { n.joined = true; grew = true; break; }
+                }
+            }
+        }
+        for (const Node& n : nodes) if (n.joined) s_chain.insert(n.factory);
+    }
 }
 
 void HD::CataMirrorWidenCulling() {
@@ -144,6 +198,16 @@ void HD::CataMirrorWidenFrustumSet(const C3Vector* corners, float minX, float mi
     if (minX > 0.0f || minY > 0.0f || maxX < 1.0f || maxY < 1.0f) return; // a portal's part of the screen
     HD::CataMirrorWidenCulling();
 }
+
+bool HD::CataMirrorInstanceRange(const Liquid::IGeomFactory* factory, float& low, float& high) {
+    auto entry = s_chunkRanges.find(factory);
+    if (entry == s_chunkRanges.end()) return false;
+    low = entry->second.first;
+    high = entry->second.second;
+    return std::isfinite(low) && std::isfinite(high) && low <= high;
+}
+
+bool HD::CataMirrorInChain(const Liquid::IGeomFactory* factory) { return s_chain.count(factory) != 0; }
 
 bool HD::CataMirrorMeshWaterBox(const Liquid::IGeomFactory* factory, const C44Matrix& transform, CAaBox& box) {
     const auto* mesh = dynamic_cast<const Liquid::CMeshGeomFactory*>(factory);

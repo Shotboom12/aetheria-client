@@ -243,7 +243,7 @@ void HD::AO::RegisterCVars() {
     s_radius = OptionCVars::Register("hdAORadius", "HD: AO radius in yards (0.25..6)", "1");
     s_strength = OptionCVars::Register("hdAOStrength", "HD: AO strength (0..3)", "0.85");
     s_debug = CVar::Register("hdAODebug", "HD: 1 shows AO alone", 0, "0", nullptr, CATEGORY_GRAPHICS, false, nullptr, false);
-    s_half = OptionCVars::Register("hdAOHalfRes", "HD: GTAO: 0 full resolution / 1 bilateral half resolution", "0");
+    s_half = OptionCVars::Register("hdAOHalfRes", "HD: GTAO: 0 full resolution / 1 bilateral half resolution", "1"); // HD lot A1 (Mado Nov 6): half resolution by default, -0.9 ms GPU
     s_quality = OptionCVars::Register("hdAOQuality", "HD: XeGTAO 0 low / 1 medium / 2 high / 3 ultra", "1");
     s_temporal = OptionCVars::Register("hdAOTemporal", "HD: GTAO 1 accumulates over frames (removes the grain) / 0 single frame", "1");
     s_info = CVar::Register("hdAOInfo", "HD: ambient occlusion status", 0, "off", nullptr, CATEGORY_GRAPHICS, false, nullptr, false); if (s_info) s_info->m_flags &= ~0x1u; /* status only: not archived to Config.wtf */

@@ -29,7 +29,8 @@ uint64_t Key(const CM2Light*l){uintptr_t p=reinterpret_cast<uintptr_t>(l),first=
 }
 void Init(){if(initialized)return;repair=Var("hdModelLampRepair","HD: bounded real lamp selection for M2, before shader permutation; 0 off");producer=Var("hdLampMaterialDelta","HD: isolate the selected real lamp in material shaders; 0 off");info=Var("hdLampInfo","HD: selected lamps and actual vertex shader consumption");probe=Var("hdLampProbe","HD: explicit test light pinned 4 yards ahead of the camera; 0 off, 1 debug only");initialized=true;}
 bool Enabled(){return Vulkan()&&repair&&repair->m_intValue==1;}
-bool ProducerEnabled(){auto*sun=CVar::LookupRegistered("hdSunDebug");return producerReady&&Vulkan()&&producer&&producer->m_intValue==1&&(!sun||sun->m_intValue==0);}
+bool ProducerEnabled(){static CVar*sunVar=nullptr;if(!sunVar)sunVar=CVar::LookupRegistered("hdSunDebug");auto*sun=sunVar; // HD C1: looked up once (it was a name hash per draw, ~4 % of the engine thread)
+ return producerReady&&Vulkan()&&producer&&producer->m_intValue==1&&(!sun||sun->m_intValue==0);}
 void Track(CM2Light*l,uint64_t model){if(!Enabled()&&!ProducerEnabled())return;if(!l||l->m_type!=M2LIGHT_POINT||!l->m_scene)return;Sample s;s.owner=reinterpret_cast<uintptr_t>(l);s.model=model;s.scene=reinterpret_cast<uintptr_t>(l->m_scene);s.position={l->m_pos.x,l->m_pos.y,l->m_pos.z};s.color={l->m_dirColor.x,l->m_dirColor.y,l->m_dirColor.z};s.constant=l->m_constantAttenuation;s.linear=l->m_linearAttenuation;s.quadratic=l->m_quadraticAttenuation;s.visible=l->m_visible!=0;s.stamp=l->m_stamp;registry.Track(s);}
 void Forget(CM2Light*l){if(!registry.Count())return;uint64_t key=Key(l);registry.Forget(reinterpret_cast<uintptr_t>(l));if(key&&key==chosenKey){chosenKey=0;frozen={};}}
 void ClearScene(){registry.Clear();chosenKey=0;frozen={};frameSerial=0;drawSlots=0;modelOwner=0;pixelDraw=false;}

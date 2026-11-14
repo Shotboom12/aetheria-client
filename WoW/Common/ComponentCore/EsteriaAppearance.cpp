@@ -490,6 +490,8 @@ void Refresh(CCharacterComponent* c);
         static auto const saberon = ReadSelections(L"EsteriaSaberon.bin");
         static auto const kyrian = ReadSelections(L"Data\\Retail\\EsteriaKyrian.bin");
         static auto const venthyr = ReadSelections(L"Data\\Retail\\EsteriaVenthyr.bin");
+        static auto const vorkai = ReadSelections(L"Data\\Retail\\EsteriaVorkai.bin");
+        static auto const hozen = ReadSelections(L"Data\\Retail\\EsteriaHozen.bin");
         static auto const naga = ReadSelections(L"EsteriaNaga.bin");
         static auto const tuskarr = ReadSelections(L"EsteriaTuskarr.bin");
         static auto const vrykul = ReadSelections(L"EsteriaVrykul.bin");
@@ -529,6 +531,8 @@ void Refresh(CCharacterComponent* c);
             case 72: return tarasek;
             case 60: return kyrian;
             case 61: return venthyr;
+            case 110: return vorkai;
+            case 112: return hozen;
             case 64: return saberon;
             case 54: return naga;
             case 55: return tuskarr;
@@ -580,6 +584,8 @@ void Refresh(CCharacterComponent* c);
             case 72: return L"EsteriaTarasekTextures.bin";
             case 60: return L"Data\\Retail\\EsteriaKyrianTextures.bin";
             case 61: return L"Data\\Retail\\EsteriaVenthyrTextures.bin";
+            case 110: return L"Data\\Retail\\EsteriaVorkaiTextures.bin";
+            case 112: return L"Data\\Retail\\EsteriaHozenTextures.bin";
             case 64: return L"EsteriaSaberonTextures.bin";
             case 54: return L"EsteriaNagaTextures.bin";
             case 55: return L"EsteriaTuskarrTextures.bin";
@@ -631,6 +637,8 @@ void Refresh(CCharacterComponent* c);
             case 72: return "Tarasek";
             case 60: return "Kyrian";
             case 61: return "Venthyr";
+            case 110: return "Vorkai";
+            case 112: return "Hozen";
             case 64: return "Saberon";
             case 54: return "Naga";
             case 55: return "Tuskarr";
@@ -1766,7 +1774,8 @@ std::vector<unsigned char> HaranirBlpData(char const* path)
                 && CreatureAppearance::Uses(character->m_data.m_preferences.m_raceID)
                 && character->m_data.m_preferences.m_raceID != 60 && character->m_data.m_preferences.m_raceID != 61
                 && character->m_data.m_preferences.m_raceID != 63 && character->m_data.m_preferences.m_raceID != 72
-                && character->m_data.m_preferences.m_raceID != 69 && character->m_data.m_preferences.m_raceID != 70))
+                && character->m_data.m_preferences.m_raceID != 69 && character->m_data.m_preferences.m_raceID != 70
+                && character->m_data.m_preferences.m_raceID != 110 && character->m_data.m_preferences.m_raceID != 112))
             return false;
         unsigned race = character->m_data.m_preferences.m_raceID;
         unsigned gender = character->m_data.m_preferences.m_sexID;
@@ -1784,6 +1793,11 @@ std::vector<unsigned char> HaranirBlpData(char const* path)
             static const std::array<HighmountainAppearance::Requirement, 0> none{};
             if (gender) return HighmountainControl(state, command, character, CreatureAppearance::VenthyrFemaleControls, CreatureAppearance::VenthyrFemaleLabels, none);
             return HighmountainControl(state, command, character, CreatureAppearance::VenthyrMaleControls, CreatureAppearance::VenthyrMaleLabels, none);
+        }
+        if (race == 110 || race == 112) {
+            static const std::array<HighmountainAppearance::Requirement, 0> none{};
+            if (race == 110) return HighmountainControl(state, command, character, CreatureAppearance::VorkaiControls, CreatureAppearance::VorkaiLabels, none);
+            return HighmountainControl(state, command, character, CreatureAppearance::HozenControls, CreatureAppearance::HozenLabels, none);
         }
         if (race == 63) {
             static const std::array<HighmountainAppearance::Requirement, 0> none{};
@@ -2123,7 +2137,7 @@ template<class Options> void SelectGeometry(CCharacterComponent* c,Options const
     }
     // Geometry refreshes also run independently of material binding. Restore
     // equipped native skirts and cuff meshes after the customization pass.
-    if(p.m_raceID==60||p.m_raceID==61)BindSelectorOutfit(c);
+    if(p.m_raceID==60||p.m_raceID==61||p.m_raceID==110||p.m_raceID==112)BindSelectorOutfit(c);
 }
 
 template<class F> bool OptionsFor(CCharacterComponent* c,F&& callback) {
@@ -2392,7 +2406,7 @@ bool Bind(CCharacterComponent* c) {
     if(!BindSelectorStaticTextures(c) && c->m_data.m_preferences.m_raceID==46)return false;
     if(c->m_data.m_preferences.m_raceID==46)return true;
     auto const& preferences=c->m_data.m_preferences;
-    if(preferences.m_raceID==60||preferences.m_raceID==61) {
+    if(preferences.m_raceID==60||preferences.m_raceID==61||preferences.m_raceID==110||preferences.m_raceID==112) {
         // Reapply the authored skin/hair/wing palettes after every completed
         // component texture update. The legacy compositor can replace them.
         auto const& records=RetailSelections(preferences.m_raceID,preferences.m_sexID);

@@ -1078,18 +1078,21 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     p.mistFalloff = 1.0f / cfg.mistHeight;
     p.twilight = hourly * cfg.twilight * TwilightWeight(in.sunElevation, in.moonElevation);
     p.lightGlow = hourly * cfg.lightGlow * NightWeight(in.sunElevation);
-    const float lampDayShare = LampDayShare(cfg, in.sunElevation);
-    p.lampHaze = hourly * cfg.lampFog * lampDayShare *
+    constexpr float kEffectDayLight = 0.35f; // HD J1
+    // HD J1: the day share of the catalogue lamps is applied per lamp (LampSelection::WriteSlot: outdoor only), not here
+    p.lampHaze = hourly * cfg.lampFog *
                  (kLampClearHaze + kLampWeatherHaze * cfg.weatherFog * p.weather) *
                  LampFogDensityGain(NearGroundFogDensity(p) * (1.0f + p.mistBoost));
-    p.lampLight = hourly * cfg.lampLight * lampDayShare;
-    p.lanternGlow = LampNightWeight(in.sunElevation);
+    p.lampLight = hourly * cfg.lampLight;
+    p.lanternGlow = LampHourWeight(in.dayFraction); // HD 2026-11-05 lot J2: by the clock (was LampNightWeight(sunElevation))
     p.nightDarkness = hourly * cfg.nightDarkness * LampNightWeight(in.sunElevation) * (1.0f - in.indoors);
-    p.windowLight = hourly * cfg.windowLight * LampNightWeight(in.sunElevation);
+    p.windowLight = hourly * cfg.windowLight * LampHourWeight(in.dayFraction); // HD 2026-11-05 lot J2: by the clock
     p.lanternLight = hourly * cfg.lanternLight;
-    p.effectLight = hourly * cfg.effectLight * lampDayShare;
-    p.corpseLight = hourly * cfg.corpseLight * lampDayShare;
-    p.farLightCore = hourly * cfg.farLights * LampNightWeight(in.sunElevation);
+    // HD J1: spell and corpse lights keep the old day share (0.35, the former LampDayLight default)
+    const float effectDayShare = kEffectDayLight + (1.0f - kEffectDayLight) * LampNightWeight(in.sunElevation);
+    p.effectLight = hourly * cfg.effectLight * effectDayShare;
+    p.corpseLight = hourly * cfg.corpseLight * effectDayShare;
+    p.farLightCore = hourly * cfg.farLights * LampHourWeight(in.dayFraction); // HD 2026-11-05 lot J2: by the clock
     CloudShadows(in, cfg, hourly, p);
     ApplyWeatherAndTimeOfDay(in, cfg, p);
     std::copy(fogColor, fogColor + 3, p.overcastSky);
@@ -1330,6 +1333,21 @@ float NightWeight(float sunElevation)
 float LampNightWeight(float sunElevation)
 {
     return 1.0f - std::clamp((sunElevation - kLampDaylightFrom) / kLampDaylightSpan, 0.0f, 1.0f);
+}
+
+float LampHourWeight(float dayFraction) // HD 2026-11-05 lot J2
+{
+    const float h = std::clamp(dayFraction, 0.0f, 1.0f) * 24.0f;
+    if (h < 6.0f) return 1.0f;
+    if (h < 7.0f) return 7.0f - h;
+    if (h < 21.5f) return 0.0f;
+    if (h < 22.0f) return (h - 21.5f) / 0.5f;
+    return 1.0f;
+}
+
+float LampDayShareAt(const Config& cfg, float dayFraction) // HD 2026-11-05 lot J2
+{
+    return cfg.lampDayLight + (1.0f - cfg.lampDayLight) * LampHourWeight(dayFraction);
 }
 
 float LampDayShare(const Config& cfg, float sunElevation)

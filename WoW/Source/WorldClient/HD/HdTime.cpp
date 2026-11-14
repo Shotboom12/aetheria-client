@@ -30,6 +30,7 @@ namespace {
     CVar* s_hdShadowCasterFade = nullptr;
     CVar* s_hdFogContinuousFlags = nullptr;
     CVar* s_hdShadowSunRefresh = nullptr;
+    CVar* s_hdShadowFarEvery = nullptr; // HD 2026-11-04 lot S3
     CVar *s_daySmooth = nullptr, *s_dayHalfLife = nullptr, *s_dayRate = nullptr, *s_dayWindow = nullptr;
     HD::DayNightMath::Clock s_dayClock;
     HD::WeatherBlendState s_weatherBlend;
@@ -69,6 +70,7 @@ void HD::RegisterTimeCVars() {
     s_hdShadowCasterFade = OptionCVars::Register("hdShadowCasterFade", "HD: 1 = bushes and trees stay in the near shadow maps (their shadows no longer blink as you move), 0 = original", "1");
     s_hdShadowTexelSnap = OptionCVars::Register("hdShadowTexelSnap", "HD: 1 = shadow map centres stay on the texel grid (shadows no longer swim when you move), 0 = original", "1");
     s_hdShadowSunRefresh = OptionCVars::Register("hdShadowSunRefresh", "HD: refresh real-sun cached maps after this angle in degrees (.01..5)", "0.5");
+    s_hdShadowFarEvery = OptionCVars::Register("hdShadowFarEvery", "HD: cascaded shadows (extShadowQuality 5): redraw the 640 yd cascade every N frames (1 = every frame, original; 2..8; default 4 = Max base setting)", "4");
     s_daySmooth = OptionCVars::Register("hdDayNightSmooth", "HD: continuous visual day/night clock and palette interpolation; 0 diagnostic native timing", "1");
     s_dayHalfLife = OptionCVars::Register("hdDayNightHalfLife", "HD: visual clock correction half-life in seconds; native weather unchanged", "6");
     s_dayRate = OptionCVars::Register("hdDayNightMaxRate", "HD: maximum visual catch-up rate in game minutes per real second", "10");
@@ -110,7 +112,8 @@ bool HD::ShadowFullCasters() {
 }
 
 int32_t HD::ShadowBillboardMode() {
-    return On() ? OptionCVars::Int(s_hdShadowBillboard, 0, 2, 0) : 0;
+    // A bug fix, not a look, so every visual set gets it (stock trees' shadows turned with the camera).
+    return OptionCVars::Int(s_hdShadowBillboard, 0, 2, 1);
 }
 
 float HD::SunGlareDim() {
@@ -133,6 +136,7 @@ float HD::ShadowSunRefreshDegrees() {
     float v = s_hdShadowSunRefresh ? s_hdShadowSunRefresh->m_floatValue : 0.5f;
     return std::isfinite(v) ? std::clamp(v, 0.01f, 5.0f) : 0.5f;
 }
+int32_t HD::ShadowFarEvery() { return On() ? OptionCVars::Int(s_hdShadowFarEvery, 1, 8, 4) : 1; } // HD 2026-11-04 lot S3; other visual sets keep the original every frame
 float HD::SmoothWeatherBlend(float target, uint32_t now, int32_t mapId) {
     return target;  // HD: native weather is mandatory, even with an old saved nonzero cvar.
 }

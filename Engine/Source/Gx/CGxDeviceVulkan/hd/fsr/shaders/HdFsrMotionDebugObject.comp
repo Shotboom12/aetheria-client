@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Diagnostic (2026-10-31): which pixels carry an OBJECT motion marker (M2), at any distance.
+// Diagnostic (HD, 2026-10-31): which pixels carry an OBJECT motion marker (M2), at any distance.
 // Unmarked (camera motion) = dark grey; marked and still = cyan; marked and moving = red -> yellow with amplitude.
 #version 450
 layout(local_size_x=8,local_size_y=8)in;

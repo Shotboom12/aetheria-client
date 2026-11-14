@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Esteria Inventory
+## Notes: Searchable native digital carried inventory for Esteria.
+## Author: Esteria
+## Version: 1.0.0
+## SavedVariables: EsteriaInventoryDB
+EsteriaInventory.lua

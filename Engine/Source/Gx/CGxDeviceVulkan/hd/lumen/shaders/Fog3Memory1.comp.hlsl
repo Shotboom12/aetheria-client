@@ -998,7 +998,9 @@ float4 LvPixel(float2 lowResTexel)
     float3 viewDirection = viewRay / distancePerViewZ;
     float depth = SampleDepth(sDepth, pixel);
     float skyMask = IsSky(depth) ? 1 : 0;
-    float hazeFromSky = HazeFromSkyShare() * (1 - skyMask);
+    // F1 (HD 2026-11-05): an empty pixel below the horizon (no sea floor, past the far clip) takes the
+    // sky-tinted haze like the far terrain beside it; only real sky above the horizon keeps the sunlit colour.
+    float hazeFromSky = HazeFromSkyShare() * (1 - skyMask * smoothstep(0.0, 0.02, ViewToWorldDirection(viewDirection).z));
     float3 hazeColour = HazeFromSky(pixel);
     float viewZ = LinearDepth(depth);
     float horizonBlend = max(BeyondFarClip(depth) ? 1 : 0, smoothstep(HorizonBlendStart(), FarClip(), viewZ));
@@ -1008,6 +1010,11 @@ float4 LvPixel(float2 lowResTexel)
     float jitter = StepJitter(lowResTexel);
     float3 cameraWorld = CameraPositionWorld();
     float3 directionWorld = ViewToWorldDirection(viewDirection);
+    // F2 (HD 2026-11-05): at and below the horizon nothing is drawn past the far clip (the native fog ends there).
+    // March no further than the far clip there, not MaxFogDistance (4x farther): looking toward the light, 5000 yards of
+    // fog at eye height saturated to white over the empty sea and the far terrain. The cap fades out over the first
+    // ~3 degrees above the horizon, so the real sky keeps its full march.
+    marchLength = min(marchLength, lerp(FarClip() * distancePerViewZ, MaxFogDistance(), smoothstep(0.0, 0.05, directionWorld.z)));
     // Preserve the native fog's existing air/water boundary. This is a read-only
     // plane supplied by the water owner, not a new water effect or depth write.
     if(LvConstants[127].y>0.5 && abs(directionWorld.z)>1e-6){float planeDistance=(LvConstants[127].x-cameraWorld.z)/directionWorld.z;if(planeDistance>0)marchLength=min(marchLength,planeDistance);}

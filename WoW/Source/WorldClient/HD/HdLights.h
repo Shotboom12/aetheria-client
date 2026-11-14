@@ -41,6 +41,9 @@ namespace HD {
     // ones that really light this ground win (the sphere only bounds the search: a chunk's sphere also holds what
     // stands on it and is much bigger than its ground).
     int32_t LightsForGround(CM2Scene* scene, const C3Vector& camera, const CAaSphere& sphere, const C3Vector* ground, int32_t groundCount, float* out);
+    // HD 2026-11-04 lot T1: false only when this frame's lights are already gathered for this scene and none of them
+    // reaches the sphere (the very test LightsForGround makes first): it then picks no light, with or without ground points.
+    bool LightsGroundNeeded(CM2Scene* scene, const CAaSphere& sphere);
 
 
     // Read-only export of the ALREADY gathered frame cache. Render thread only;

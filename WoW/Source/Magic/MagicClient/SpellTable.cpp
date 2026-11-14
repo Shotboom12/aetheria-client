@@ -53,6 +53,8 @@ SKILLLINEREC* SkillLineRecTable::InternalNew(TSExplicitList<SKILLLINEREC>* listp
 // eligibility identical to the server's. Races 32 and below are unchanged.
 static int32_t SpellTableEligibilityRace(int32_t race) {
     switch (race) {
+        case 110: return 4; // Sylvari shares Night Elf eligibility.
+        case 112: return 2; // Hozen shares Orc eligibility.
         case 46: return 6;
         case 47: return 7;
         case 50: return 4;

@@ -2209,6 +2209,17 @@ void CWorldScene::AddDoodadDefModelToModelScene(CMapDoodadDef* doodadDef) {
         }
     }
 
+    // HD lot I1 (HD 2026-11-04): doodads added to the M2 scene by distance to the camera (hdCataRenderPerf 1 only),
+    // to size what a far-object proxy could take. Counting only.
+    if (HD::CataRenderPerf::Enabled()) {
+        const C3Vector hdDelta = doodadDef->m_sphere.c - CWorldScene::s_activeWorldView;
+        const float hdDistSq = hdDelta.x * hdDelta.x + hdDelta.y * hdDelta.y + hdDelta.z * hdDelta.z;
+        HD::CataRenderPerf::Add(hdDistSq < 100.0f * 100.0f ? HD::CataRenderPerf::Counter::DoodadsTo100
+                              : hdDistSq < 300.0f * 300.0f ? HD::CataRenderPerf::Counter::Doodads100To300
+                              : hdDistSq < 600.0f * 600.0f ? HD::CataRenderPerf::Counter::Doodads300To600
+                              : HD::CataRenderPerf::Counter::DoodadsBeyond600);
+    }
+
     doodadDef->m_model->SetAnimating(1);
 
     CM2Model* model = doodadDef->m_model;
@@ -2939,6 +2950,7 @@ void CWorldScene::PushPortalView(CPortalView* portalView) {
 
 // VERIFY: 7852eb0b auto
 // OFFSET: 0x00795D40
+static bool s_diagWasInside = false; // DIAGNOSTIC 2026-11-09
 void CWorldScene::LocateViewer3() {
     CWorldScene::s_viewerMapObjDef = nullptr;
     CWorldScene::s_viewerMovedMapObjDef = nullptr;
@@ -2946,6 +2958,19 @@ void CWorldScene::LocateViewer3() {
     CWorldScene::s_viewerMovedMapObjGroups.m_count = 0;
     s_debugMapName[0] = 0;
     s_debugMapChunk[0] = 0;
+
+    {   // DIAGNOSTIC (2026-11-09): a line every 2 s with the view direction and the portal-view counts of the previous frame.
+        static uint32_t s_diagLast = 0;
+        uint32_t now = OsGetAsyncTimeMs();
+        if (now - s_diagLast >= 2000) {
+            s_diagLast = now;
+            sExtensionMgr->Log("ViewerDiag tick: camera (%.1f %.1f %.1f) dir (%.2f %.2f %.2f) portalViews=%u exteriorViews=%u chunkRect %d,%d..%d,%d doodadsRendered=%u",
+                CWorldScene::s_activeWorldView.x, CWorldScene::s_activeWorldView.y, CWorldScene::s_activeWorldView.z,
+                CWorldScene::camVec.x, CWorldScene::camVec.y, CWorldScene::camVec.z,
+                uint32_t(CWorldScene::s_portalViews.Count()), uint32_t(CWorldScene::s_exteriorPortalViews.Count()),
+                CWorldScene::s_frustumChunkRect.minX, CWorldScene::s_frustumChunkRect.minY, CWorldScene::s_frustumChunkRect.maxX, CWorldScene::s_frustumChunkRect.maxY, CWorldScene::nDoodadsRendered);
+        }
+    }
 
     if (!(CWorld::enables & Enable_MapObjs)) {
         return;
@@ -2961,6 +2986,11 @@ void CWorldScene::LocateViewer3() {
     uint32_t groups[4];
 
     if (!CMap::LocateViewerMapObjs(start, end, dist, defs, groups)) {
+        // DIAGNOSTIC (2026-11-09): log when the viewer leaves every map object group.
+        if (s_diagWasInside) {
+            s_diagWasInside = false;
+            sExtensionMgr->Log("ViewerDiag: outside all map objects at (%.1f %.1f %.1f) portalViews=%u exteriorViews=%u", CWorldScene::s_activeWorldView.x, CWorldScene::s_activeWorldView.y, CWorldScene::s_activeWorldView.z, uint32_t(CWorldScene::s_portalViews.Count()), uint32_t(CWorldScene::s_exteriorPortalViews.Count()));
+        }
         if (hitTerrain) {
             SStrCopy(s_debugMapName, CMap::mapName, sizeof(s_debugMapName));
             SStrPrintf(s_debugMapChunk, sizeof(s_debugMapChunk), "%i, %i", chunk->m_cOffset.x / 16, chunk->m_cOffset.y / 16);
@@ -3000,6 +3030,18 @@ void CWorldScene::LocateViewer3() {
             groupFlags |= CWorldScene::s_viewerMapObjDef->m_owner->GetGroupFlags(groups[1]);
         }
 
+        // DIAGNOSTIC (2026-11-09): log each time the viewer's WMO group changes, with its flags.
+        {
+            static void* s_diagDef = nullptr;
+            static uint32_t s_diagGroup = 0xFFFFFFFFu, s_diagFlags = 0;
+            if (s_diagDef != static_cast<void*>(defs[0]) || s_diagGroup != groups[0] || s_diagFlags != groupFlags) {
+                s_diagDef = defs[0]; s_diagGroup = groups[0]; s_diagFlags = groupFlags;
+                sExtensionMgr->Log("ViewerDiag: inside wmo '%s' group %u ('%s') flags 0x%X (portal view %s) camera (%.1f %.1f %.1f) groups2 %u/%u",
+                    defs[0]->m_owner->m_wmoName ? defs[0]->m_owner->m_wmoName : "?", groups[0], defs[0]->m_owner->GetGroupName(groups[0]) ? defs[0]->m_owner->GetGroupName(groups[0]) : "?",
+                    groupFlags, (groupFlags & 0x40140) ? "YES" : "no", CWorldScene::s_activeWorldView.x, CWorldScene::s_activeWorldView.y, CWorldScene::s_activeWorldView.z, groups[0], groups[1]);
+            }
+            s_diagWasInside = true;
+        }
         if (groupFlags & 0x40140) {
             CRect rect;
             rect.minY = 0.0f;
@@ -3584,7 +3626,7 @@ void CWorldScene::RenderDetailDoodads() {
     for (CDetailDoodadInst* inst = CWorldScene::sortTable.m_detailDoodadInstList.Head(); inst; inst = next) {
         next = CWorldScene::sortTable.m_detailDoodadInstList.Next(inst);
         CMapChunk* chunk = inst->m_chunk;
-        inst->m_age = 0;
+        inst->m_age = HD::g_detailDoodadClock; // HD 2026-11-04 lot C2: age 0 (grass clock)
 
         CM2Lighting lighting(chunk->m_sphere);
         World::s_m2Scene->SelectLights(&lighting);

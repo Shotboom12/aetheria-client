@@ -56,7 +56,7 @@ uintptr_t SkeletonPart(){return current.palette;}uint32_t SkeletonRows(){return 
 void EndFrame(){active=false;}
 bool Active(){return active;}bool FrameSafe(){return !active||(safe&&!invalidated.load(std::memory_order_acquire));}
 void UnsafeFrame(){if(active){safe=false;++stats.unsafe;}}
-// DIAG conflits (2026-10-31): read only, changes no decision. The first draw of each key this frame leaves the hashes of its
+// DIAG conflits (HD 2026-10-31): read only, changes no decision. The first draw of each key this frame leaves the hashes of its
 // projection (rows 2..5) and pose (rows 31..33); a later conflicting draw says which of the two differs. Names are copied.
 namespace{
 struct SeenDraw{uint64_t frame=0,projection=0,pose=0;};SeenDraw seenDraws[32768];
@@ -104,12 +104,12 @@ bool Prepare(const wxlvk::draw::Cmd&c,bool wind,float out[16],uint32_t*cookie){
  // Even first/singular history uses the same shader with ZERO transform: fragment clears its marker.
  return true;
 }
-// FIX 2026-10-31: attachment 6 is cleared every world frame, so a depth writer without a marker output is only unsafe once a motion writer (mode 2 rigid, 3 skin or 4 wind) has marked pixels it could cover (sky/ff draws issued before the objects are safe).
+// FIX HD 2026-10-31: attachment 6 is cleared every world frame, so a depth writer without a marker output is only unsafe once a motion writer (mode 2 rigid, 3 skin or 4 wind) has marked pixels it could cover (sky/ff draws issued before the objects are safe).
 void Issued(uint32_t mode,uint32_t cookie){if(!active)return;history.Commit(cookie,serial);if(mode==2||mode==3||mode==4){++stats.writers;wrote=true;}else if(mode==1)++stats.zero;else if(wrote)UnsafeFrame();}
 bool WroteMotion(){return active&&wrote;}
 Stats ReadStats(bool reset){const Stats out=stats;if(reset)stats=Stats{};return out;}
 uint64_t MemoryBytes(){return sizeof history+sizeof lives;}
-// DIAG M3 (2026-10-31): read only, changes no decision.
+// DIAG M3 (HD 2026-10-31): read only, changes no decision.
 namespace{thread_local const char*diagName=nullptr;thread_local uint32_t diagSection=0,diagBones=0;}
 DiagModel::DiagModel(const char*name,uint32_t sectionBones,uint32_t modelBones):name_(diagName),section_(diagSection),bones_(diagBones){diagName=name;diagSection=sectionBones;diagBones=modelBones;}
 DiagModel::~DiagModel(){diagName=name_;diagSection=section_;diagBones=bones_;}

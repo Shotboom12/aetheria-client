@@ -4,8 +4,12 @@
 #include "Engine/Source/ConsoleBase/Types.h"
 #include "Engine/Source/Storm/H/storm.h"
 #include <cmath>
+#include <algorithm> // HD: hdShadowBillboard
+#include <vector> // HD: hdShadowBillboard
+#include <xmmintrin.h> // HD 2026-11-05 lot S4: _mm_prefetch
 #include "Engine/Source/Model2/M2Light.h"
 #include "Engine/Source/ShaderEffect/ShadowCache.h"
+#include "WoW/Source/WorldClient/HD/HdCataRenderPerf.h" // HD 2026-11-04 lot S1
 #include "WoW/Source/ObjectMgrClient/ObjectMgrClient.h"
 #include "WoW/Source/Object/ObjectClient/Object_C.h"
 #include "WoW/Source/UIUtil/Camera.h"
@@ -129,9 +133,16 @@ void CShadowQuery::Update() {
     }
     CShadowCache::ConfigureSunCache(HD::ShadowHeightScale()==1.0f && HD::ShadowSunCacheFix(), HD::ShadowSunRefreshDegrees()); // HD
     CShadowCache::ConfigureTexelSnap(HD::ShadowTexelSnap()); // HD: hdShadowTexelSnap
+    CShadowCache::ConfigureFarEvery(HD::ShadowFarEvery()); // HD 2026-11-04 lot S3: hdShadowFarEvery
     CShadowCache::PreUpdate(direction);
     C3Vector viewer(0.0f, 0.0f, 0.0f);
     GetViewerPosition(&viewer);
+    // HD 2026-11-04 lot S1: CShadowCache times its parts through these (hdCataRenderPerf); Begin() is 0 when it is off.
+    HDShadowDiag::perfBegin = &HD::CataRenderPerf::Begin;
+    HDShadowDiag::perfEnd = [](int phase, uint64_t start) {
+        static constexpr HD::CataRenderPerf::Stage kStages[5] = { HD::CataRenderPerf::Stage::ShadowDyn, HD::CataRenderPerf::Stage::ShadowGather, HD::CataRenderPerf::Stage::ShadowBand0, HD::CataRenderPerf::Stage::ShadowBand1, HD::CataRenderPerf::Stage::ShadowBand2 };
+        if (phase >= 0 && phase < 5) HD::CataRenderPerf::End(kStages[phase], start);
+    };
     CShadowCache::SetDebugParams(1.0f, 0);
     CShadowCache::Update(viewer, useCullFrustum);
     CShadowCache::PostUpdate();
@@ -1058,6 +1069,7 @@ void CShadowQuery::QueryMapObjDefs(CShadowCacheQueryData& data, int32_t firstBan
 // VERIFY: 896bfb08 manual
 // OFFSET: 0x007BCF20
 void CShadowQuery::QueryTerrainBand(CShadowCacheQueryData& data, int32_t band) {
+    HD::CataRenderPerf::Scope hdPerf(band == 0 ? HD::CataRenderPerf::Stage::ShadowTerrainQ0 : band == 1 ? HD::CataRenderPerf::Stage::ShadowTerrainQ1 : HD::CataRenderPerf::Stage::ShadowTerrainQ2); // HD 2026-11-04 lot S1
     float minSize;
     float maxSize;
     CShadowQuery::GetSize(data, band, &minSize, &maxSize);
@@ -1070,14 +1082,22 @@ void CShadowQuery::QueryTerrainBand(CShadowCacheQueryData& data, int32_t band) {
     GetChunkRect(extents, rect);
 
     for (int32_t row = rect.minY; row <= rect.maxY; row++) {
-        for (int32_t col = rect.minX; col <= rect.maxX; col++) {
+        // HD 2026-11-05 lot S4: the chunk boxes of this row are fetched from memory ahead (prefetch only), in groups
+        // of kHdAhead, then tested in the same order as before: same chunks, same doodads, same stamps, same batches.
+        constexpr int32_t kHdAhead = 32;
+        CMapChunk* hdChunks[kHdAhead];
+        for (int32_t colStart = rect.minX; colStart <= rect.maxX; colStart += kHdAhead) {
+        const int32_t colEnd = std::min(rect.maxX, colStart + kHdAhead - 1);
+        for (int32_t col = colStart; col <= colEnd; col++) {
             CMapArea* area = CMap::m_areaTable[(((row >> 4) & 0x3F) << 6) + ((col >> 4) & 0x3F)];
-
-            if (!area || area->m_asyncObject) {
-                continue;
+            CMapChunk* chunk = (!area || area->m_asyncObject) ? nullptr : area->m_mapChunks[(col & 0xF) + 16 * (row & 0xF)];
+            hdChunks[col - colStart] = chunk;
+            if (chunk) {
+                _mm_prefetch(reinterpret_cast<const char*>(&chunk->m_bbox), _MM_HINT_T0);
             }
-
-            CMapChunk* chunk = area->m_mapChunks[(col & 0xF) + 16 * (row & 0xF)];
+        }
+        for (int32_t col = colStart; col <= colEnd; col++) {
+            CMapChunk* chunk = hdChunks[col - colStart];
 
             if (!chunk) {
                 continue;
@@ -1102,13 +1122,15 @@ void CShadowQuery::QueryTerrainBand(CShadowCacheQueryData& data, int32_t band) {
                 CM2Model* model = doodad->m_model;
 
                 // HD diagnostic (temporary): why terrain doodads are left out of this band
+                // HD 2026-11-04 lot S1: ShadowBeyondFade (pure) computed once for the diagnostic and the test, same results.
+                const bool hdBeyond = model && (doodad->m_flags & 0x80) && ShadowBeyondFade(data, band, doodad->m_sphere.c, doodad->m_fadeLevel);
                 int* hdTq = HDShadowDiag::tq[band < 3 ? band : 2];
                 ++hdTq[0];
                 if (model && !(doodad->m_flags & 0x80)) ++hdTq[1];
-                else if (model && ShadowBeyondFade(data, band, doodad->m_sphere.c, doodad->m_fadeLevel)) ++hdTq[2];
+                else if (hdBeyond) ++hdTq[2];
                 else if (model && maxSize < doodad->m_sphere.r) ++hdTq[3];
 
-                if (!model || !(doodad->m_flags & 0x80) || ShadowBeyondFade(data, band, doodad->m_sphere.c, doodad->m_fadeLevel) || maxSize < doodad->m_sphere.r) {
+                if (!model || !(doodad->m_flags & 0x80) || hdBeyond || maxSize < doodad->m_sphere.r) {
                     continue;
                 }
 
@@ -1119,6 +1141,7 @@ void CShadowQuery::QueryTerrainBand(CShadowCacheQueryData& data, int32_t band) {
                     model->GatherModelBatchesShadowMap(CShadowQuery::s_bandBuffers[band].m_untextured, CShadowQuery::s_bandBuffers[band].m_textured);
                 }
             }
+        }
         }
     }
 }

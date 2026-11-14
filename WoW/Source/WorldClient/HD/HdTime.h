@@ -37,6 +37,26 @@ int32_t ShadowBillboardMode();
 // While hdShadowSun casts long shadows: draw every caster of a band into the shadow maps, not only those the camera's
 // frustum reaches (the donor's FullCasters), or a fern beside or behind the camera loses its long shadow in view.
 bool ShadowFullCasters();
+    // HD: diagnostics/refresh of real-sun cached maps; original short-shadow path is untouched.
+    bool ShadowSunCacheFix();
+    // hdShadowTexelSnap: 1 = shadow band centres on the shadow map texel grid (no swimming edges), 0 = original.
+    bool ShadowTexelSnap();
+    // hdShadowCasterFade: 1 = shadow casters no longer cut at the fade distance inside the near bands (no blinking
+    // shadows of bushes and trees as the player moves), 0 = original.
+    bool ShadowCasterFade();
+    bool SmoothFogFeatures();
+    float ShadowSunRefreshDegrees();
+    // HD 2026-11-04 lot S3, hdShadowFarEvery: redraw the 640 yd cascade every N frames (1 = original, 1..8).
+    int32_t ShadowFarEvery();
+    float SmoothWeatherBlend(float target, uint32_t now, int32_t mapId);
+    void ResetWeatherBlend();
+    // HD: a single visual clock; native weather and the server/gameplay clock stay independent.
+    bool DayNightSmoothingEnabled();
+    float DayNightBandTime(float ticks);
+    float DayNightBandTime(float ticks, float nativeRounded);
+    float DayNightBlendWeight();
+    void ResetDayNight();
+    uint64_t DayNightFrameSerial();
 
 // Mado's 2026-11-03 update. Every one of these is Azeroth Remastered only: they return the original behaviour in
 // Stock Vulkan and Lumenveil.

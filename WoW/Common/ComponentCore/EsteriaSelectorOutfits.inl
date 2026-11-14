@@ -121,10 +121,10 @@ void ExtendNativeClothRegion(std::vector<unsigned char>& pixels,int left,int top
 bool SelectorNativeBodyPixels(CCharacterComponent* c,std::vector<unsigned char>& outfit,
     unsigned& width,unsigned& height,std::vector<unsigned char> const* gloveless=nullptr) {
     struct FittingMap {unsigned width=0,height=0;std::vector<unsigned> pixels;std::vector<unsigned char> coverage;};
-    static std::array<FittingMap,4> maps;
+    static std::array<FittingMap,8> maps;
     auto const& prefs=c->m_data.m_preferences;
-    if((prefs.m_raceID!=60&&prefs.m_raceID!=61)||prefs.m_sexID>1)return false;
-    auto& map=maps[(prefs.m_raceID-60)*2+prefs.m_sexID];
+    if((prefs.m_raceID!=60&&prefs.m_raceID!=61&&prefs.m_raceID!=110&&prefs.m_raceID!=112)||prefs.m_sexID>1)return false;
+    auto& map=maps[(prefs.m_raceID<=61?prefs.m_raceID-60:prefs.m_raceID==110?2:3)*2+prefs.m_sexID];
     if(map.pixels.empty()) {
         wchar_t path[128]{};
         swprintf_s(path,L"Data\\Retail\\Assets\\EquipmentFitting\\%u-%u.bin",prefs.m_raceID,prefs.m_sexID);
@@ -217,7 +217,7 @@ bool SelectorNativeBodyPixels(CCharacterComponent* c,std::vector<unsigned char>&
                 continue;
             }
             auto const* layer=outfit.data()+4*((sample>>16)*512+(sample&65535u));
-            if(gloveless&&c->m_itemDisplayID[ITEMSLOT_GLOVES]&&(sample&65535u)<256&&(sample>>16)>=128&&(sample>>16)<256) {
+            if(gloveless&&(prefs.m_raceID==60||prefs.m_raceID==61)&&c->m_itemDisplayID[ITEMSLOT_GLOVES]&&(sample&65535u)<256&&(sample>>16)>=128&&(sample>>16)<256) {
                 float compression=prefs.m_raceID==60?.82f:.78f;
                 int gloveY=256-int((256-int(sample>>16))/compression);
                 if(gloveY>=128)layer=outfit.data()+4*(gloveY*512+(sample&65535u));
@@ -271,8 +271,10 @@ void FitNativePlayerShoulders(CCharacterComponent* c) {
 }
 void BindSelectorOutfit(CCharacterComponent* c) {
     auto race=c->m_data.m_preferences.m_raceID;
-    if(race!=60&&race!=61&&race!=62&&race!=63&&race!=64&&race!=69&&race!=70&&!(race==72&&!c->m_data.m_preferences.m_sexID))return;
-    bool nativeBody=race==60||race==61;
+    if(race!=60&&race!=61&&race!=62&&race!=63&&race!=64&&race!=69&&race!=70&&race!=110&&race!=112&&!(race==72&&!c->m_data.m_preferences.m_sexID))return;
+    bool nativeBody=race==60||race==61||race==110||race==112;
+    bool privateBody=race==60||race==61; // Kyrian/Venthyr only: private skirt/leg/boot/glove geosets
+    bool meshBody=privateBody||race==110||race==112; // also Sylvari/Hozen: glove cuff 2003x, greave 2002x, belt 20132 shells
     unsigned textureType=nativeBody?11:race==62?1:14;
     FitNativePlayerHelmet(c);
     FitNativePlayerShoulders(c);
@@ -281,26 +283,26 @@ void BindSelectorOutfit(CCharacterComponent* c) {
     auto& state=selectorOutfits[c];auto fields=HighmountainFields(c);
     std::array<unsigned,12> gear{};std::copy_n(c->m_itemDisplayID,12,gear.begin());
     ItemDisplayInfoRec chestRecord{},pantsRecord{};
-    bool chestRobe=nativeBody&&gear[ITEMSLOT_CHEST]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_CHEST],&chestRecord)&&chestRecord.m_geosetGroup[2]!=0;
-    bool legSkirt=nativeBody&&gear[ITEMSLOT_PANTS]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_PANTS],&pantsRecord)&&pantsRecord.m_geosetGroup[2]!=0;
+    bool chestRobe=privateBody&&gear[ITEMSLOT_CHEST]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_CHEST],&chestRecord)&&chestRecord.m_geosetGroup[2]!=0;
+    bool legSkirt=privateBody&&gear[ITEMSLOT_PANTS]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_PANTS],&pantsRecord)&&pantsRecord.m_geosetGroup[2]!=0;
     bool robe=chestRobe||legSkirt;
-    bool shoes=nativeBody&&race==60&&gear[ITEMSLOT_BOOTS]&&(c->m_section[SECTION_FOOT].m_layerMask&1);
-    bool greaves=nativeBody&&race==61&&gear[ITEMSLOT_BOOTS];
-    bool gloves=nativeBody&&gear[ITEMSLOT_GLOVES];
+    bool shoes=privateBody&&race==60&&gear[ITEMSLOT_BOOTS]&&(c->m_section[SECTION_FOOT].m_layerMask&1);
+    bool greaves=meshBody&&race!=60&&gear[ITEMSLOT_BOOTS];
+    bool gloves=meshBody&&gear[ITEMSLOT_GLOVES];
     unsigned gloveStyle=0;ItemDisplayInfoRec gloveRecord{};
     if(gloves&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_GLOVES],&gloveRecord))gloveStyle=std::min(3u,static_cast<unsigned>(gloveRecord.m_geosetGroup[0]));
     unsigned bootStyle=0;ItemDisplayInfoRec bootRecord{};
-    if(nativeBody&&gear[ITEMSLOT_BOOTS]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_BOOTS],&bootRecord))
+    if(meshBody&&gear[ITEMSLOT_BOOTS]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_BOOTS],&bootRecord))
         bootStyle=std::min(4u,static_cast<unsigned>(bootRecord.m_geosetGroup[0]));
-    unsigned upperLegGeo=nativeBody&&!robe&&pantsRecord.m_geosetGroup[0]?(pantsRecord.m_geosetGroup[0]>2?20104u:20102u):0;
-    unsigned lowerLegGeo=nativeBody&&!robe&&!bootStyle&&pantsRecord.m_geosetGroup[1]?(pantsRecord.m_geosetGroup[1]>1?20113u:20112u):0;
+    unsigned upperLegGeo=privateBody&&!robe&&pantsRecord.m_geosetGroup[0]?(pantsRecord.m_geosetGroup[0]>2?20104u:20102u):0;
+    unsigned lowerLegGeo=privateBody&&!robe&&!bootStyle&&pantsRecord.m_geosetGroup[1]?(pantsRecord.m_geosetGroup[1]>1?20113u:20112u):0;
     ItemDisplayInfoRec shirtRecord{};
-    unsigned waistGeo=nativeBody&&!robe&&gear[ITEMSLOT_SHIRT]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_SHIRT],&shirtRecord)&&shirtRecord.m_geosetGroup[1]?20122u:0;
+    unsigned waistGeo=privateBody&&!robe&&gear[ITEMSLOT_SHIRT]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_SHIRT],&shirtRecord)&&shirtRecord.m_geosetGroup[1]?20122u:0;
     ItemDisplayInfoRec beltRecord{};
-    unsigned beltGeo=nativeBody&&gear[ITEMSLOT_BELT]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_BELT],&beltRecord)&&beltRecord.m_geosetGroup[0]?20132u:0;
+    unsigned beltGeo=meshBody&&gear[ITEMSLOT_BELT]&&g_itemDisplayInfoDB.GetRecord(gear[ITEMSLOT_BELT],&beltRecord)&&beltRecord.m_geosetGroup[0]?20132u:0;
     bool legMeshes=upperLegGeo||lowerLegGeo||waistGeo||beltGeo;
     auto bindLegMeshes=[&]() {
-        if(!nativeBody)return;
+        if(!meshBody)return;
         c->m_data.m_model->SetGeometryVisible(20100,20139,0);
         c->m_data.m_model->SetGeometryVisible(20200,20200,0);
         // Private anatomy split retains the original triangles when unrobed,
@@ -314,7 +316,7 @@ void BindSelectorOutfit(CCharacterComponent* c) {
     bindLegMeshes();
     if(state.texture && state.gear==gear && state.fields==fields && state.hasRobe==robe && state.hasShoes==shoes && state.hasGreaves==greaves && state.bootStyle==bootStyle&&state.hasGloves==gloves&&state.gloveStyle==gloveStyle) {
         c->m_data.m_model->ReplaceTexture(textureType,reinterpret_cast<CTexture*>(state.texture.get()));
-        if(nativeBody) {
+        if(meshBody) {
             c->m_data.m_model->SetGeometryVisible(1302,1302,robe?1:0);
             c->m_data.m_model->SetGeometryVisible(20002,20034,0);
             if(shoes)c->m_data.m_model->SetGeometryVisible(20010+bootStyle,20010+bootStyle,1);
@@ -349,8 +351,8 @@ void BindSelectorOutfit(CCharacterComponent* c) {
             if(!(row.m_layerMask&(1u<<layer)))continue;
             // Skirt textures live in lower-leg layer 4. Read every native layer
             // and suppress the covered item by display ID, not a layer cutoff.
-            if(nativeBody&&robe&&region==6&&row.m_layerItemDisplayId[layer]==gear[ITEMSLOT_BOOTS])continue;
-            if(nativeBody&&chestRobe&&region==5&&row.m_layerItemDisplayId[layer]==gear[ITEMSLOT_PANTS])continue;
+            if(privateBody&&robe&&region==6&&row.m_layerItemDisplayId[layer]==gear[ITEMSLOT_BOOTS])continue;
+            if(privateBody&&chestRobe&&region==5&&row.m_layerItemDisplayId[layer]==gear[ITEMSLOT_PANTS])continue;
             AccessoryPixelSource source;
             if(!SelectorLayerPixels(row.m_layerTex[layer],source)){TraceSelector("Sethrak layer decode failed component=%p region=%u layer=%u",c,region,layer);pendingSelectorBind.insert(c);return;}
             auto const& data=source.levels[0];unsigned w=source.Word(12),h=source.Word(16);
@@ -363,7 +365,7 @@ void BindSelectorOutfit(CCharacterComponent* c) {
             }
         }
     }
-    if(nativeBody&&race==60&&gear[ITEMSLOT_BOOTS])SealNativeBootFoot(pixels);
+    if(privateBody&&race==60&&gear[ITEMSLOT_BOOTS])SealNativeBootFoot(pixels);
     std::shared_ptr<void> robeTexture;
     if(robe||shoes||greaves||gloves||legMeshes) {
         auto garment=pixels;
@@ -401,7 +403,7 @@ void BindSelectorOutfit(CCharacterComponent* c) {
     state.gear=gear;state.fields=fields;state.texture=texture;state.robeTexture=robeTexture;state.hasRobe=robe;state.hasShoes=shoes;state.hasGreaves=greaves;state.bootStyle=bootStyle;state.hash=hash;
     state.hasGloves=gloves;state.gloveStyle=gloveStyle;
     c->m_data.m_model->ReplaceTexture(textureType,reinterpret_cast<CTexture*>(texture.get()));
-    if(nativeBody) {
+    if(meshBody) {
         c->m_data.m_model->SetGeometryVisible(1302,1302,robe?1:0);
         c->m_data.m_model->SetGeometryVisible(20002,20034,0);
         if(shoes)c->m_data.m_model->SetGeometryVisible(20010+bootStyle,20010+bootStyle,1);

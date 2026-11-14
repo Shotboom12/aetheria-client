@@ -2278,7 +2278,11 @@ void CGSpellBook::DelKnownSpell(int32_t spellId, int32_t notify) {
             if (ability) {
                 const SkillRaceClassInfoRec* info = SpellTableLookupInfo(player->m_unit->m_unitFieldBytes0[0], player->m_unit->m_unitFieldBytes0[1], ability->m_skillLine);
 
-                if (info && info->m_flags >= 0) {
+                // Must match CGSpellBook::AddSpell / GetSpellSkillInfoIndex (`!(m_flags & 0x80)`): a spell whose skill
+                // row is flagged 0x80 is filed under General there, so it must come off General here. The old
+                // `m_flags >= 0` was always true and left the tab's count too high after a spell was removed, which
+                // shifted every later section header (Lightning Bolt under "Hunter", etc.).
+                if (info && !(info->m_flags & 0x80)) {
                     skillLine = info->m_skillID;
                 }
             }

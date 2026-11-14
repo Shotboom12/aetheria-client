@@ -440,7 +440,16 @@ bool CMapObj::Read(char* fileName) {
 
     SFileImpl* file = nullptr;
 
-    if (CMap::SafeOpen(fileName, &file)) {
+    // Not in the original: a Retail model (retail\<id>.wmo) that the Retail install cannot deliver (CASC error 6002:
+    // missing or encrypted data, e.g. a newer housing style) must not end the game. Try once, and let the existing
+    // missingwmo fallback below stand in for it. Every other model keeps the original retrying, fatal SafeOpen.
+    const bool retailName = (fileName[0] == 'r' || fileName[0] == 'R') && (fileName[1] == 'e' || fileName[1] == 'E')
+        && (fileName[2] == 't' || fileName[2] == 'T') && (fileName[3] == 'a' || fileName[3] == 'A')
+        && (fileName[4] == 'i' || fileName[4] == 'I') && (fileName[5] == 'l' || fileName[5] == 'L')
+        && (fileName[6] == '\\' || fileName[6] == '/');
+    const bool opened = retailName ? (SFileOpenFile(fileName, &file) != 0) : (CMap::SafeOpen(fileName, &file) != 0);
+
+    if (opened) {
         SStrCopy(this->m_wmoName, fileName, STORM_MAX_STR);
     } else {
         CMap::SafeOpen("world\\wmo\\Dungeon\\test\\missingwmo.wmo", &file);

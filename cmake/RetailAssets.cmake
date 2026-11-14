@@ -32,7 +32,10 @@ add_library(RetailAssets STATIC
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/PackedMounts.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/CascSource.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/DecodedCache.cpp"
+    "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/PackedArchives.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailModel.cpp"
+    "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailWmo.cpp"
+    "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailTerrain.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/RetailShader.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/ClientTables.cpp"
     "${CMAKE_SOURCE_DIR}/Engine/Source/Retail/Db2.cpp"
@@ -58,13 +61,29 @@ add_executable(CdnAssetDownload "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/download
 target_link_libraries(CdnAssetDownload PRIVATE RetailAssets)
 add_executable(CdnSourceSmoke "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/source_smoke.cpp")
 target_link_libraries(CdnSourceSmoke PRIVATE RetailAssets)
+add_executable(CdnCacheTrim "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/cache_trim.cpp")
+target_link_libraries(CdnCacheTrim PRIVATE RetailAssets)
+add_executable(PackedAssetTests "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/packed_tests.cpp")
+target_link_libraries(PackedAssetTests PRIVATE RetailAssets)
 if (WIN32)
     add_executable(RetailShaderProbe "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/shader_probe.cpp"
         "${CMAKE_SOURCE_DIR}/Engine/Source/Gx/CGxDeviceD3d11/ShaderTranslator.cpp")
     target_link_libraries(RetailShaderProbe PRIVATE RetailAssets d3dcompiler)
 endif ()
+add_executable(RetailWmoTests "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/wmo_tests.cpp")
+target_link_libraries(RetailWmoTests PRIVATE RetailAssets)
+add_executable(RetailTerrainTests "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/terrain_tests.cpp")
+target_link_libraries(RetailTerrainTests PRIVATE RetailAssets)
 enable_testing()
 add_test(NAME retail-assets COMMAND RetailAssetTests)
 add_executable(PackedMountTests "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/packed_mounts_tests.cpp")
 target_link_libraries(PackedMountTests PRIVATE RetailAssets)
 add_test(NAME packed-mounts COMMAND PackedMountTests)
+add_test(NAME retail-wmo COMMAND RetailWmoTests)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if (Python3_Interpreter_FOUND)
+    add_test(NAME casc-cache-trim COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/test_cache_trim.py" "$<TARGET_FILE:CdnCacheTrim>")
+    add_test(NAME packed-originals COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/Tools/RetailAssets/test_packed.py" "$<TARGET_FILE:PackedAssetTests>")
+endif ()

@@ -29,6 +29,14 @@ void CataMirrorWidenFrustumSet(const C3Vector* corners, float minX, float minY, 
 // choice and HdCataWater's "is this the mirrored water" test both use it: the instance's bounds are the whole
 // group's sphere (CWorldScene liquid queueing), not the water's, so their centre is not the water height.
 bool CataMirrorMeshWaterBox(const Liquid::IGeomFactory* factory, const C44Matrix& transform, CAaBox& box);
+// HD L19 (2026-11-03): the lowest and highest water of a chunk water instance (its 2x2 chunk batch) seen by this
+// frame's CataMirrorChoosePlane, found by the instance's geometry factory. False for map object water and for water
+// the choice did not see. HdCataWater uses it so that a batch whose water spans the plane takes the reflection too.
+bool CataMirrorInstanceRange(const Liquid::IGeomFactory* factory, float& low, float& high);
+// HD L19b (2026-11-04): true when this chunk water batch is joined to the plane's water: it touches the plane, or it
+// sits next to (borders within a yard) a joined batch and its water heights meet that batch's (a stream climbing out
+// of the lake, batch after batch). Chunk water only; computed by CataMirrorChoosePlane once the plane is chosen.
+bool CataMirrorInChain(const Liquid::IGeomFactory* factory);
 }
 
 #endif

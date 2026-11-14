@@ -43,7 +43,7 @@ uint XeHilbert(uvec2 p){
         if(y==0u){if(x==1u)p=uvec2(63)-p;p=p.yx;}}
     return index;
 }
-// HD (Claude): upstream SpatioTemporalNoise; frame 0 is the fixed pattern, temporal accumulation cycles 64 frames.
+// HD (HD): upstream SpatioTemporalNoise; frame 0 is the fixed pattern, temporal accumulation cycles 64 frames.
 vec2 XeNoise(ivec2 p,uint frame){return fract(.5+float(XeHilbert(uvec2(p))+288u*(frame%64u))*vec2(.75487766624669276005,.56984029099805326591));}
 // HD: exact acos in FP32 replaces upstream fast sqrt/acos approximation for slope accuracy.
 float XeACos(float x){return acos(clamp(x,-1,1));}

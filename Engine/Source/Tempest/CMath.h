@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#if defined(_M_X64) || defined(__x86_64__)
+#include <xmmintrin.h>
+#endif
 
 class CMath {
     public:
@@ -69,7 +72,13 @@ inline float CMath::cos_(float x) {
 }
 
 // INLINED
+// HD C1 (HD 2026-11-04): on x64, lrintf is a CRT call (rint + fegetenv inside), 14 % of the engine
+// thread in the 4 Nov profile (CWorldOcclusion). cvtss2si rounds in the current mode exactly as lrintf
+// does (checked on every in-range float); NaN and out-of-range values keep the CRT call.
 inline int32_t CMath::fint_(float f) {
+#if defined(_M_X64) || defined(__x86_64__)
+    if (f > -2147483648.0f && f < 2147483648.0f) return _mm_cvtss_si32(_mm_set_ss(f));
+#endif
     return static_cast<int32_t>(lrintf(f));
 }
 

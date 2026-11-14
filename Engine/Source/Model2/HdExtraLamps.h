@@ -29,9 +29,19 @@ bool HideLight(const void* shared, const void* model, uint32_t index, uint32_t c
 
 // The added lamps are lit at night only, like the windows (DayNight's m_curve0: 1 at night, 0 by day, a fade at
 // dusk and dawn). hdExtraLampsDay = how much of their light stays by day (default 0).
+// HD 2026-11-05 lot J2: how lit the lamps are by the clock (dayProgression 0..1): 1 until 6:00, off at 7:00,
+// starting at 21:30, full at 22:00. Lumenveil uses the same hours (lumen/source/fog_model.cpp LampHourWeight).
+float NightAtDay(float dayProgression);
 void SetNight(float night);                // DayNight::SetColors, each frame
 // Light `index` of `shared` is our added light: its colour scale now (0..1). -1 = not ours (left to Blizzard).
-float LightScale(const void* shared, uint32_t index, uint32_t count);
+float LightScale(const void* shared, uint32_t index, uint32_t count, const void* model = nullptr);
+
+// HD J1 2026-11-05 (Max: lights off by day outdoors, on at night, always on indoors). The Blizzard lights of map
+// decor (ADT and building doodads, CM2Model flag 0x8000) follow the night too, except a doodad of an interior building
+// group (MAPOBJ_FLAG_INTERIOR, set by CMapObj::CreateRefs): hdLampsDay = how much stays by day (default 0, 1 = Blizzard).
+void SetInteriorModel(const void* model, bool interior); // CMapObj::CreateRefs; false when the model is destroyed
+// Colour scale (0..1) of the Blizzard lights of a map-decor model now; -1 = left to Blizzard (interior, or hdLampsDay 1).
+float DoodadLightScale(const void* model);
 }
 
 #endif

@@ -88,7 +88,10 @@ namespace gxvk::vk::pipelines::detail
     /// The uniform ring: chunks per frame slot, each a mapped UNIFORM_BUFFER with one set-1
     /// descriptor over it; a frame that fills a chunk moves to the next.
     constexpr uint32_t     kRegsChunkBytes = 4u * 1024u * 1024u;
-    constexpr uint32_t     kMaxRegsChunks  = 16;
+    // 2026-11-09: was 16 (64 MiB a frame slot). Founder's Point (retail housing map) filled it, the ring was exhausted
+    // and the draws after that point were refused without a word, so terrain, grass, water, models and the player vanished
+    // with the view. Chunks are made only when a frame needs them.
+    constexpr uint32_t     kMaxRegsChunks  = 64;
 
     /// One uniform slice of the translated interface: p[16], misc, v[rows] (Shaders: the Regs
     /// block). The set-1 descriptor's range is the larger class; a 64-row module reads the first
@@ -265,6 +268,7 @@ namespace gxvk::vk::pipelines::detail
         bool warnedSets     = false;
         bool warnedLayouts  = false;
         bool warnedRegs     = false;
+        bool warnedRegsFull = false;
     };
     extern State s;
 

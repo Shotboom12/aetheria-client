@@ -1,5 +1,10 @@
 #include "WoW/Source/WorldClient/HD/HdCataMirror.h"
 #include <cfloat>
+#include <cmath>
+#include <algorithm>
+#include "Engine/Source/Os/System.h"
+#include "Engine/Source/Os/TimeManager.h"
+#include "WoW/Source/Extension/ExtensionMgr.h"
 #include "CWorldSceneRender.h"
 #include "WoW/Source/WorldClient/Map.h"
 #include "WoW/Source/WorldClient/World.h"
@@ -239,6 +244,31 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
         weatherBounds.t.x = CWorldScene::s_activeWorldView.x + weatherBounds.t.x;
         weatherBounds.t.y = CWorldScene::s_activeWorldView.y + weatherBounds.t.y;
         weatherBounds.t.z = CWorldScene::s_activeWorldView.z + weatherBounds.t.z;
+    }
+
+    {   // DIAGNOSTIC (2026-11-09): per-frame counts; a line when a count falls well under its running average, or when
+        // the projection or camera position the frustum was built from differs from what is being drawn with.
+        static float s_avgChunks = 0.0f, s_avgDoodads = 0.0f;
+        static uint32_t s_frames = 0, s_lastLog = 0;
+        const float chunks = float(CWorldScene::s_chunksRendered), doodads = float(CWorldScene::nDoodadsRendered);
+        const float* now = reinterpret_cast<const float*>(&g_theGxDevicePtr->m_projection);
+        const float* then = reinterpret_cast<const float*>(&CWorldScene::projMatrix);
+        float projDiff = 0.0f;
+        for (int i = 0; i < 16; ++i) projDiff = std::max(projDiff, std::fabs(now[i] - then[i]));
+        const C3Vector d = cameraPos - CWorldScene::s_activeWorldView;
+        const float posDiff = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        const bool drop = s_frames > 60 && (chunks < s_avgChunks * 0.6f || doodads < s_avgDoodads * 0.6f);
+        const uint32_t tnow = OsGetAsyncTimeMs();
+        if ((drop || projDiff > 1e-4f || posDiff > 0.05f) && tnow - s_lastLog >= 200) {
+            s_lastLog = tnow;
+            sExtensionMgr->Log("FrameDiag: %s chunks=%.0f (avg %.0f) doodads=%.0f (avg %.0f) projDiff=%.5f posDiff=%.3f camera (%.1f %.1f %.1f) dir (%.2f %.2f %.2f)",
+                drop ? "DROP" : "mismatch", chunks, s_avgChunks, doodads, s_avgDoodads, projDiff, posDiff,
+                CWorldScene::s_activeWorldView.x, CWorldScene::s_activeWorldView.y, CWorldScene::s_activeWorldView.z,
+                CWorldScene::camVec.x, CWorldScene::camVec.y, CWorldScene::camVec.z);
+        }
+        s_avgChunks = s_frames ? s_avgChunks * 0.97f + chunks * 0.03f : chunks;
+        s_avgDoodads = s_frames ? s_avgDoodads * 0.97f + doodads * 0.03f : doodads;
+        ++s_frames;
     }
 
     GxXformPop(GxXform_World);

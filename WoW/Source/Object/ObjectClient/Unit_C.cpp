@@ -1709,22 +1709,49 @@ void CGUnit_C::PreAnimate(CGWorldFrame* frame) {
     }
 
     if (this->m_worldModel) {
-        if (this->m_obj->m_guid == ClntObjMgrGetActivePlayer()) {
-            BodyShape::ApplyEdited(this->m_worldModel, twistSet, twistBase);
-        } else if (this->m_obj->m_type & TYPEMASK_PLAYER) {
-            // Other players: the sliders the server sent for them. Past MeshRange yards only the bone sliders apply.
-            const BodyShape::UnitShape* shape = BodyShape::UnitFor(this->m_obj->m_guid.m_guid);
+        JigglePhysics::Motion motion;
+        {
+            C3Vector where = this->GetPosition();
+            motion.valid = true;
+            motion.pos[0] = where.x;
+            motion.pos[1] = where.y;
+            motion.pos[2] = where.z;
+            motion.facing = this->GetFacing();
+        }
 
-            if (shape || BodyShape::HasApplier(this->m_worldModel)) {
-                static const BodyShape::Values none;
-                constexpr float MeshRange = 40.0f;
-                CGObject_C* self = ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__);
-                C3Vector mine = self ? self->GetPosition() : C3Vector(0.0f, 0.0f, 0.0f);
-                C3Vector there = this->GetPosition();
-                float dx = mine.x - there.x, dy = mine.y - there.y, dz = mine.z - there.z;
-                bool isClose = self && dx * dx + dy * dy + dz * dz < MeshRange * MeshRange;
-                BodyShape::Apply(this->m_worldModel, shape ? (isClose ? shape->full : shape->distant) : none, twistSet, twistBase);
+        if (this->m_obj->m_guid == ClntObjMgrGetActivePlayer()) {
+            BodyShape::ApplyEdited(this->m_worldModel, twistSet, twistBase, &motion);
+        } else if ((this->m_obj->m_type & TYPEMASK_PLAYER) || (this->m_unit->m_unitFieldFlags2 & 0x10)) {
+            // Other players (and housing merchants): the sliders the server sent for them. Past MeshRange yards only the bone sliders apply.
+            const BodyShape::UnitShape* shape = BodyShape::UnitFor(this->m_obj->m_guid.m_guid);
+            static const BodyShape::Values none;
+            constexpr float MeshRange = 40.0f;
+            CGObject_C* self = ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__);
+            C3Vector mine = self ? self->GetPosition() : C3Vector(0.0f, 0.0f, 0.0f);
+            C3Vector there = this->GetPosition();
+            float dx = mine.x - there.x, dy = mine.y - there.y, dz = mine.z - there.z;
+            bool isClose = self && dx * dx + dy * dy + dz * dz < MeshRange * MeshRange;
+
+            // Players within range also get the breast jiggle, even with no sliders of their own (the rear jiggle
+            // rebuilds the mesh, so it stays with the local player).
+            if (shape || BodyShape::HasApplier(this->m_worldModel) || (isClose && JigglePhysics::Active())) {
+                BodyShape::Apply(this->m_worldModel, shape ? (isClose ? shape->full : shape->distant) : none, twistSet, twistBase, isClose ? 1u : 0u, &motion);
             }
+        }
+
+        // Cloak springs (CapePhysics.h) for players: the local player and anyone within 45 yards. Others are released.
+        if (this->m_obj->m_type & TYPEMASK_PLAYER) {
+            bool capeRun = true;
+            if (this->m_obj->m_guid != ClntObjMgrGetActivePlayer()) {
+                CGObject_C* capeSelf = ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__);
+                C3Vector capeMine = capeSelf ? capeSelf->GetPosition() : C3Vector(0.0f, 0.0f, 0.0f);
+                C3Vector capeThere = this->GetPosition();
+                float cx = capeMine.x - capeThere.x, cy = capeMine.y - capeThere.y, cz = capeMine.z - capeThere.z;
+                capeRun = capeSelf && cx * cx + cy * cy + cz * cz < 45.0f * 45.0f;
+            }
+
+            CapePhysics::State& cape = BodyShape::CapeStates()[this->m_worldModel];
+            CapePhysics::Update(this->m_worldModel, cape, capeRun, &motion, twistSet[0] ? &twistBase[0] : nullptr);
         }
     }
 
@@ -9118,8 +9145,17 @@ int32_t CGUnit_C::GetModelFileName(const char** name) const {
     // Players of a race mapped to Retail data use the Retail character model.
     const bool worgenHuman = this->m_unit->m_unitFieldBytes0[0] == 12 &&
         this->m_displayInfoExtra && this->m_displayInfoExtra->m_displayRaceID == 23;
-    if ((this->m_obj->m_type & TYPEMASK_PLAYER) &&
-        (this->m_unit->m_unitFieldDisplayid == this->m_unit->m_unitFieldNativedisplayid || worgenHuman)) {
+
+    // Same display the stock GetModelData resolves: players in view start with m_displayId 0, which means "use the
+    // display field". Comparing the raw value left every remote player on the stock model.
+    int32_t effectiveDisplay = this->m_displayId;
+    if (!effectiveDisplay || this->m_unit->m_unitFieldNativedisplayid != this->m_unit->m_unitFieldDisplayid) {
+        effectiveDisplay = this->m_unit->m_unitFieldDisplayid;
+    }
+
+    // Esteria: a housing merchant is a creature with the mirror-image flag and a player race.
+    bool const playerBody = (this->m_obj->m_type & TYPEMASK_PLAYER) || ((this->m_unit->m_unitFieldFlags2 & 0x10) && this->m_unit->m_unitFieldBytes0[0]);
+    if (playerBody && (effectiveDisplay == static_cast<int32_t>(this->m_unit->m_unitFieldNativedisplayid) || worgenHuman)) {
         static thread_local char retailPath[260];
 
         if (RetailRaceModelPath(worgenHuman ? 23 : this->m_unit->m_unitFieldBytes0[0], this->m_unit->m_unitFieldBytes0[2], retailPath, sizeof(retailPath),
@@ -25214,8 +25250,11 @@ void CGUnit_C::OnReceiveMirrorImageDataFromServer(CDataStore* msg) {
         data.m_model = this->m_worldModel;
         data.m_flags ^= (data.m_flags ^ (static_cast<uint32_t>(this->m_obj->m_guid == ClntObjMgrGetActivePlayer()) << 1)) & 0x2;
         data.m_model->m_refCount++;
-        CCharacterComponent::ValidateComponentData(&data, COMPONENT_CONTEXT_1);
+        if (!RetailRaceMapped(data.m_preferences.m_raceID)) { // Esteria: retail options go beyond the stock ranges
+            CCharacterComponent::ValidateComponentData(&data, COMPONENT_CONTEXT_1);
+        }
         this->m_characterComponent->Init(&data, nullptr);
+        RetailRaceBindOwner(this->m_characterComponent, this);
 
         uint32_t itemDisplayId;
 

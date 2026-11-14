@@ -30,6 +30,7 @@ void Register(){
  reactiveScale=Var("hdFSRReactiveScale","HD: R1 auto-reactive scale 0..2, default 0.9","0.9");
  compositionThreshold=Var("hdFSRCompositionThreshold","HD: R1 changed-colour threshold 0..1; not true material alpha, default 0.1 (AMD starting value)","0.1");
  debugCheck=Var("hdFSRDebugCheck","HD: AMD SDK debug checking 1 on (messages in the log) / 0 off (no checking cost); applied when the FSR/FG context is recreated; default 0 for play","0");
+ {static bool hdDef1Once=false;if(!hdDef1Once){hdDef1Once=true;if(debugCheck&&debugCheck->m_intValue!=0)debugCheck->InternalSet("0",true,false,false,false);}} // HD DEF1: diagnostic journal off at every start (a test never leaves it on)
  reactiveCutoff=Var("hdFSRReactiveCutoff","HD: R1 reactive values below this become 0 (0..1, default 0.1; 0 = no cutoff)","0.1");
  windMotion=Var("hdFSRWindMotion","HD: M4 previous tree wind / grass phases (M1 and M2/M4 assets; default off)","0");
  skeletalMotion=Var("hdFSRSkeletalMotion","HD: M3 per-instance previous bone palettes (M1 + M2/M3 shader assets required); wind excluded","0");

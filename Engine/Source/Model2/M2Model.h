@@ -279,6 +279,7 @@ class CM2Model {
     void ReleaseBodyShapeBuffer();
     void SetBoneFlagsByIndex(uint32_t index, uint32_t flags, uint32_t mask);
     void SetBoneProceduralTransformByIndex(uint32_t index, const C44Matrix& matrix);
+    bool GetBoneAnimatedMatrix(uint32_t index, C44Matrix& matrix); // last animated pose, model space; false before the first animation pass
     void SetBoneSequenceSpeed(uint32_t boneId, float speed);
     void SetBoneSequenceTime(uint32_t boneId, uint32_t time);
     void SetupBoneSequence(uint16_t sequenceIndex, M2SequenceFallback fallback, uint32_t time, float speed, M2ModelBoneSeq* boneSequence);

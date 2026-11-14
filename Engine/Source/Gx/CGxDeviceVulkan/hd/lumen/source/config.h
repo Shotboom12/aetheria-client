@@ -225,7 +225,7 @@ struct Config
     float fireStrength = 1.0f;
     float lampIndoors = 1.0f;
     float lampLight = 2.0f;
-    float lampDayLight = 0.35f;
+    float lampDayLight = 0.0f; // HD J1 2026-11-05: outdoor catalogue lamps off by day (was 0.35 for every lamp); indoor lamps always on
     float lampShadows = 1.0f;
     float carriedShadows = 0.0f;
     float nightDarkness = 0.7f;

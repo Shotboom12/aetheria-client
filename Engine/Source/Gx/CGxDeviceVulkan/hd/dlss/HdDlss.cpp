@@ -145,7 +145,7 @@ void WaitIdle() {
     if (h && h->device && h->dapi) h->dapi->DeviceWaitIdle(h->device);
 }
 
-// --- the sharpening after DLSS (2026-11-02) -----------------------------------------------------------
+// --- the sharpening after DLSS (HD 2026-11-02) -----------------------------------------------------------
 // DLSS 310 has no sharpening; FSR's own RCAS is the one the player tuned. DLSS then writes into an image of ours
 // at the display size, and RCAS (shaders/HdDlssRcas.comp) reads it and writes the pass's output.
 constexpr uint32_t kSharpSlots = 2;

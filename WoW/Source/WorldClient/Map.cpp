@@ -1,4 +1,5 @@
 #include "WoW/Source/WorldClient/HD/HdCataWmoStreaming.h"
+#include "WoW/Source/WorldClient/HD/HdCataRenderPerf.h"
 #include "WoW/Source/WorldClient/HD/HdDetailDoodad.h"
 #include "WoW/Source/WorldClient/HD/HdTerrain.h"
 #include <vector>
@@ -1593,7 +1594,7 @@ bool CMap::GetHeightTerrain(CMapChunk* chunk, C3Vector& pos, int32_t cellX, int3
     int32_t col = cellX & 7;
     int32_t row = cellY & 7;
 
-    if (chunk->m_header->m_holes & CMap::s_holeMask[4 * (row >> 1) + (col >> 1)]) {
+    if (chunk->m_header->HoleAt(row, col)) {
         return false;
     }
 
@@ -1919,22 +1920,31 @@ void CMap::ProcessChunkLiquidUpdateList() {
 // VERIFY: cd78794a manual
 // OFFSET: 0x007B54A0
 void CMap::ProcessDetailDoodadUpdateList() {
-    // Not in the original binary: the HD setting (hdGrassKeep) wins, else CDetailDoodad::KeepFrames() (10 frames became that).
-    uint32_t keep=HD::DetailDoodadKeepFrames();
-    if (!keep) keep=CDetailDoodad::KeepFrames();
+    // HD 2026-11-04 lot C2: the ages are no longer counted one by one (the whole list, hdGrassKeep frames of grass,
+    // walked every frame). m_age holds the grass clock of the last draw and the list is in draw order (World.cpp puts a
+    // drawn instance at its tail), so the walk stops at the first instance not yet due: same frees, same order.
+    const uint32_t clock = ++HD::g_detailDoodadClock;
     CDetailDoodadInst* inst = CMap::s_detailDoodadUpdateList.Head();
+    uint32_t keep = HD::DetailDoodadKeepFrames(); // HD: hdGrassKeep, 0 = native
+    uint32_t keepBuffers = keep ? keep : CDetailDoodad::KeepFrames(); // not in the original binary: pool-pressure keep (10 or 300)
+    uint32_t keepInst = keep ? keep : keepBuffers + 10;
 
     while (inst) {
+        const uint32_t age = clock - inst->m_age;
+
+        if (age <= keepBuffers) {
+            break; // every later instance was drawn later (younger)
+        }
+
         CDetailDoodadInst* next = CMap::s_detailDoodadUpdateList.Next(inst);
+        HD::CataRenderPerf::Add(HD::CataRenderPerf::Counter::GrassInsts); // HD: off-screen grass past hdGrassKeep (lot C2)
 
-        if (++inst->m_age > keep) {
-            if (inst->HasBatches()) {
-                inst->FreeBuffers();
-            }
+        if (inst->HasBatches()) {
+            inst->FreeBuffers();
+        }
 
-            if (inst->m_age > keep + 10) {
-                CDetailDoodad::FreeInst(inst);
-            }
+        if (age > keepInst) {
+            CDetailDoodad::FreeInst(inst);
         }
 
         inst = next;
@@ -2813,7 +2823,12 @@ CMapObjDef* CMap::CreateMapObjDef(char* fileName, SMMapObjDef* mapObjectDef, C3V
     mapObjDef->m_mat.RotateAroundZ(rotZ + 3.1415927f);
     mapObjDef->m_mat.RotateAroundY(rotY);
     mapObjDef->m_mat.RotateAroundX(rotX);
-    mapObjDef->m_invMat = mapObjDef->m_mat.AffineInverse();
+    // Not in the original binary: retail places world objects scaled (1024 = 1.0; 3.3.5 files hold 0 there). Rock at 1.5
+    // drawn at 1.0 left everything standing on it in mid-air. The range keeps junk in old files' padding from counting.
+    const uint16_t placedScale = mapObjectDef->m_scale;
+    const float scale = placedScale >= 256 && placedScale <= 8192 ? placedScale / 1024.0f : 1.0f;
+    mapObjDef->m_mat.Scale(scale);
+    mapObjDef->m_invMat = mapObjDef->m_mat.AffineInverse(scale);
 
     mapObjDef->m_bbox.b.x = -mapObjectDef->m_extents.t.z;
     mapObjDef->m_bbox.b.y = -mapObjectDef->m_extents.t.x;
@@ -5455,7 +5470,7 @@ bool CMap::QueryGroundTypeTerrain(C3Vector* pos, uint32_t* groundType) {
     int32_t col = cellX & 7;
     int32_t row = cellY & 7;
 
-    if (chunk->m_header->m_holes & CMap::s_holeMask[4 * (row >> 1) + (col >> 1)]) {
+    if (chunk->m_header->HoleAt(row, col)) {
         return false;
     }
 
@@ -6151,7 +6166,7 @@ bool CMap::GetTriSubchunk(CMapChunk* chunk, const CiRect* rect, const CAaBox* bo
 
     for (int32_t y = rect->minY; y <= rect->maxY; y++, vertices += rowSkip, height += rowSkip) {
         for (int32_t x = rect->minX; x <= rect->maxX; x++, vertices++, height++) {
-            if (chunk->m_header->m_holes & CMap::s_holeMask[4 * (y >> 1) + (x >> 1)]) {
+            if (chunk->m_header->HoleAt(y, x)) {
                 continue;
             }
 

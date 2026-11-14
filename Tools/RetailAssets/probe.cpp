@@ -11,6 +11,31 @@
 #include <cmath>
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--capabilities")
+    {
+        std::puts("{\"original_extract\":true,\"table_extract\":true,\"native_validation\":true}");
+        return 0;
+    }
+    // --batch <list>: Read every name in the list (one per line) with one Configure, printing "ok <name>" or
+    // "fail <name>: <error>"; a cold Configure costs ~30 s, so per-file runs are too slow for whole catalogs.
+    if (argc == 4 && std::string(argv[2]) == "--batch") {
+        Retail::SourceScope scope(Retail::SourceKind::Retail);
+        Retail::CascSource source(Retail::SourceKind::Retail);
+        std::string error;
+        if (!source.Configure(argv[1], error)) { std::fprintf(stderr, "configure: %s\n", error.c_str()); return 1; }
+        std::ifstream list(argv[3]);
+        int failed = 0;
+        for (std::string name; std::getline(list, name);) {
+            if (!name.empty() && name.back() == '\r') name.pop_back();
+            if (name.empty()) continue;
+            std::vector<uint8_t> bytes;
+            error.clear();
+            if (source.Read(name.c_str(), bytes, error)) std::printf("ok %s\n", name.c_str());
+            else { std::printf("fail %s: %s\n", name.c_str(), error.c_str()); ++failed; }
+            std::fflush(stdout);
+        }
+        return failed ? 1 : 0;
+    }
     const bool character = argc > 3 && std::string(argv[3]) == "--character";
     if (character) {
         for (int i = 3; i + 1 < argc; ++i) argv[i] = argv[i + 1];
@@ -233,6 +258,35 @@ int main(int argc, char** argv) {
         return 0;
     }
     std::printf("%s: %zu decoded bytes (%s)\n", argv[2], bytes.size(), inspect ? "original CDN data" : "client-ready memory");
+    // A prepared WDT: open its first tile the way CMap::LoadArea names it (MAIN at 60, 8 bytes per tile, row-major).
+    if (!inspect && requestedName.size() > 4 && requestedName.compare(requestedName.size() - 4, 4, ".wdt") == 0
+        && bytes.size() >= 60 + 4096 * 8) {
+        for (uint32_t i = 0; i < 4096; ++i) {
+            uint32_t present;
+            std::memcpy(&present, bytes.data() + 60 + i * 8, 4);
+            if (!(present & 1)) continue;
+            const auto name = requestedName.substr(0, requestedName.size() - 4) + "_" + std::to_string(i % 64) + "_"
+                + std::to_string(i / 64) + ".adt";
+            std::vector<uint8_t> tile;
+            if (!source.Read(name.c_str(), tile, error)) { std::fprintf(stderr, "%s: %s\n", name.c_str(), error.c_str()); return 1; }
+            std::printf("%s: %zu decoded bytes (client-ready memory)\n", name.c_str(), tile.size());
+            break;
+        }
+    }
+    // A prepared WMO root: open every group the way CMapObj::ReadGroup names them (MOHD group count at 20+4).
+    if (!inspect && requestedName.size() > 4 && requestedName.compare(requestedName.size() - 4, 4, ".wmo") == 0
+        && bytes.size() >= 28 && std::memcmp(bytes.data() + 12, "DHOM", 4) == 0) {
+        uint32_t groups;
+        std::memcpy(&groups, bytes.data() + 24, 4);
+        for (uint32_t i = 0; i < groups; ++i) {
+            char suffix[16];
+            std::snprintf(suffix, sizeof(suffix), "_%03u.wmo", i);
+            const auto name = requestedName.substr(0, requestedName.size() - 4) + suffix;
+            std::vector<uint8_t> group;
+            if (!source.Read(name.c_str(), group, error)) { std::fprintf(stderr, "%s: %s\n", name.c_str(), error.c_str()); return 1; }
+            std::printf("%s: %zu decoded bytes (client-ready memory)\n", name.c_str(), group.size());
+        }
+    }
     if (bytes.size() >= 48 && std::memcmp(bytes.data(), "SKIN", 4) == 0) {
         uint32_t words[12];
         std::memcpy(words, bytes.data(), sizeof(words));
@@ -259,6 +313,12 @@ int main(int argc, char** argv) {
         }
         std::printf("M2 version %u; skeleton %u; %zu skins, %zu textures, %zu animations\n",
             files.version, files.skeleton, files.skins.size(), files.textures.size(), files.animations.size());
+        if (!inspect && bytes.size() >= 0xD8) {
+            float box[14];
+            std::memcpy(box, bytes.data() + 0xA0, sizeof(box));
+            std::printf("bounds (%.1f %.1f %.1f)-(%.1f %.1f %.1f) r %.1f; collision (%.1f %.1f %.1f)-(%.1f %.1f %.1f) r %.1f\n",
+                box[0], box[1], box[2], box[3], box[4], box[5], box[6], box[7], box[8], box[9], box[10], box[11], box[12], box[13]);
+        }
         if (bytes.size() >= 0x138) {
             const size_t body = bytes[3] == '1' ? 8 : 0;
             uint32_t count;

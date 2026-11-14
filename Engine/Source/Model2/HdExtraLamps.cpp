@@ -31,6 +31,8 @@ std::atomic<float> s_night(1.0f);
 std::mutex s_lock;
 std::unordered_set<const void*> s_patched; // CM2Shared
 std::unordered_set<const void*> s_object;  // CM2Model of world objects
+std::unordered_set<const void*> s_interior; // HD J1: CM2Model of doodads in interior building groups
+std::atomic<CVar*> s_lampsDay(nullptr);      // HD J1: hdLampsDay
 
 CVar* Var(const char* name, const char* help, const char* value) {
     if (CVar* old = CVar::LookupRegistered(name)) return old;
@@ -60,6 +62,7 @@ void HD::ExtraLamps::RegisterCVars() {
     s_intensity.store(Var("hdExtraLampsIntensity", "HD: brightness of the added lamp lights (models loaded after the change)", "1.4"));
     s_objects.store(Var("hdExtraLampsObjects", "HD: 1 = the added lamp lights also on world objects (event decorations, game objects), 0 = only on map decor", "0"));
     s_day.store(Var("hdExtraLampsDay", "HD: how much of the added lamp lights stays on by day, 0 = off by day (lit at night like the windows), 1 = always on", "0"));
+    s_lampsDay.store(Var("hdLampsDay", "HD: how much of the lamp and fire lights of outdoor map decor stays on by day, 0 = off by day (lit at night), 1 = Blizzard (always on); interiors always on", "0")); // HD J1
     s_range.store(Var("hdExtraLampsRange", "HD: yards where an added lamp light ends (models loaded after the change)", "7"));
     s_enabled.store(Var("hdExtraLamps", "HD: 1 = add a point light to Blizzard lamp posts and lanterns that have none (models loaded after the change), 0 = Blizzard data", "1"));
 }
@@ -172,18 +175,47 @@ bool HD::ExtraLamps::HideLight(const void* shared, const void* model, uint32_t i
     return s_patched.count(shared) && s_object.count(model);
 }
 
+float HD::ExtraLamps::NightAtDay(float dayProgression) { // HD 2026-11-05 lot J2
+    const float h = (dayProgression < 0.0f ? 0.0f : (dayProgression > 1.0f ? 1.0f : dayProgression)) * 24.0f;
+    if (h < 6.0f) return 1.0f;
+    if (h < 7.0f) return 7.0f - h;
+    if (h < 21.5f) return 0.0f;
+    if (h < 22.0f) return (h - 21.5f) / 0.5f;
+    return 1.0f;
+}
+
 void HD::ExtraLamps::SetNight(float night) {
     s_night.store(night < 0.0f ? 0.0f : (night > 1.0f ? 1.0f : night));
 }
 
-float HD::ExtraLamps::LightScale(const void* shared, uint32_t index, uint32_t count) {
+float HD::ExtraLamps::LightScale(const void* shared, uint32_t index, uint32_t count, const void* model) {
     if (!count || index != count - 1) return -1.0f; // Patch appends the last light
     {
         std::lock_guard<std::mutex> guard(s_lock);
         if (!s_patched.count(shared)) return -1.0f;
+        if (model && s_interior.count(model)) return 1.0f; // HD J1: an added lamp inside a building stays lit by day
     }
     CVar* dayVar = s_day.load();
     float day = dayVar ? dayVar->m_floatValue : 0.0f;
     day = day < 0.0f ? 0.0f : (day > 1.0f ? 1.0f : day);
+    return day + (1.0f - day) * s_night.load();
+}
+
+void HD::ExtraLamps::SetInteriorModel(const void* model, bool interior) { // HD J1
+    if (!model) return;
+    std::lock_guard<std::mutex> guard(s_lock);
+    if (interior) s_interior.insert(model);
+    else s_interior.erase(model);
+}
+
+float HD::ExtraLamps::DoodadLightScale(const void* model) { // HD J1
+    CVar* dayVar = s_lampsDay.load();
+    float day = dayVar ? dayVar->m_floatValue : 0.0f;
+    if (!(day < 1.0f)) return -1.0f; // 1 (or NaN) = Blizzard, untouched
+    day = day < 0.0f ? 0.0f : day;
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        if (s_interior.count(model)) return -1.0f;
+    }
     return day + (1.0f - day) * s_night.load();
 }

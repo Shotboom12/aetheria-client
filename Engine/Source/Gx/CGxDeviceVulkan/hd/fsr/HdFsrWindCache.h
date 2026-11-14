@@ -9,7 +9,7 @@ enum class Kind:uint32_t{Grass=1,Tree=2};
 struct Uniform{float pixel[16][4],misc[4],vertex[256][4];};static_assert(sizeof(Uniform)==UniformBytes,"native full register block");
 struct Pose{Uniform uniform{};float bones[BoneRows][4]{};float wind[WindBytes/16][4]{};};
 struct Input{const float(*pixel)[4]=nullptr;const float*misc=nullptr;const float(*vertex)[4]=nullptr;const float(*high)[4]=nullptr;uint32_t highRows=0;const float(*bones)[4]=nullptr;uint32_t boneRows=0;const void*wind=nullptr;uint32_t windBytes=0;Kind kind=Kind::Grass;};
-enum class Result{Valid,First,Wrapped,Full,Invalid,Conflict,Shared}; // Shared: see HdFsrRigidMath.h (2026-10-31)
+enum class Result{Valid,First,Wrapped,Full,Invalid,Conflict,Shared}; // Shared: see HdFsrRigidMath.h (HD 2026-10-31)
 struct Observation{Result result=Result::Invalid;const Pose*previous=nullptr;uint32_t cookie=~uint32_t(0),bytesCopied=0;bool captured=false;};
 template<uint32_t Count=1024,uint32_t Probes=64>class Cache{
  static_assert(Count&&!(Count&(Count-1)),"power of two");

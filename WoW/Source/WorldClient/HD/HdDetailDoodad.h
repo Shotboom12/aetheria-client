@@ -52,6 +52,10 @@ namespace HD {
     // HD: hdGrassKeep. Frames a chunk's grass stays (buffers filled, instances placed) after it was last drawn,
     // instead of 3.3.5's 10 (buffers) and 20 (instances): turning the camera then finds it ready. 0 = native.
     uint32_t DetailDoodadKeepFrames();
+
+    // HD 2026-11-04 lot C2: grass clock, +1 per CMap::ProcessDetailDoodadUpdateList. CDetailDoodadInst::m_age holds
+    // the clock of the instance's last draw; its age (3.3.5's frame counter) is g_detailDoodadClock - m_age.
+    extern uint32_t g_detailDoodadClock;
 }
 
 #endif

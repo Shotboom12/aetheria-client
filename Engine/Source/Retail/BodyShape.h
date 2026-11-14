@@ -16,6 +16,8 @@
 #include "Engine/Source/Retail/BodyShapeFace.h"
 #include "Engine/Source/Retail/BodyShapeWire.h"
 #include "Engine/Source/Retail/BodyShapeMesh.h"
+#include "Engine/Source/Retail/CapePhysics.h"
+#include "Engine/Source/Retail/JigglePhysics.h"
 #include "Engine/Source/Tempest/C44Matrix.h"
 
 // Local-only body sliders for Retail humanoid skeletons. Each slider drives bone transforms through the
@@ -125,6 +127,7 @@ struct Probe {
 struct Accum {
     float scale[3] = { 1, 1, 1 };
     float move[3] = { 0, 0, 0 };
+    float rot[3] = { 0, 0, 0 }; // rotation vector (radians) about the bone pivot; the jiggle uses it
 };
 
 // A face region on the current model: its top-most bones (children ride along with their parent) and the
@@ -146,7 +149,12 @@ struct State {
     bool meshSearched = false;
     std::vector<float> bind; // the model's bind pose, 6 floats per vertex, read once per model
     float meshBreast = 0.0f;
-    float meshButt = 0.0f;
+    float meshButt = 0.0f; // rear value last built into the mesh: slider plus jiggle
+    float meshButtBase = 0.0f; // the slider part of it
+    double meshStamp = 0.0; // when the mesh was last rebuilt (the jiggle limits how often)
+    std::vector<uint32_t> meshList; // vertices the breast/rear sliders can move; filled on first use by the jiggle path
+    bool meshListReady = false;
+    JigglePhysics::State jiggle;
     std::map<std::string, RegionCache> regions;
     bool ready = false;
     std::set<uint32_t> applied; // bone indices carrying our flag on the model
@@ -200,8 +208,16 @@ inline State& For(CM2Model* model) {
     return Appliers()[model];
 }
 
+// Cloak spring state per model (CapePhysics.h). Separate from Appliers() so players without body sliders do not get
+// pulled into the slider pass; dropped with the model.
+inline std::map<CM2Model*, CapePhysics::State>& CapeStates() {
+    static std::map<CM2Model*, CapePhysics::State> states;
+    return states;
+}
+
 inline void Forget(CM2Model* model) {
     Appliers().erase(model);
+    CapeStates().erase(model);
     if (Edited().model == model) {
         Edited().model = nullptr;
     }
@@ -383,7 +399,7 @@ inline void Fold(std::map<uint32_t, Accum>& out, uint32_t index, uint32_t axes, 
 
 inline bool Neutral(const Accum& a) {
     for (int i = 0; i < 3; ++i) {
-        if (fabsf(a.scale[i] - 1.0f) > 1e-5f || fabsf(a.move[i]) > 1e-6f) {
+        if (fabsf(a.scale[i] - 1.0f) > 1e-5f || fabsf(a.move[i]) > 1e-6f || fabsf(a.rot[i]) > 1e-6f) {
             return false;
         }
     }
@@ -399,47 +415,84 @@ inline C44Matrix ToMatrix(const Accum& a) {
     m.d0 = a.move[0];
     m.d1 = a.move[1];
     m.d2 = a.move[2];
+
+    const float t2 = a.rot[0] * a.rot[0] + a.rot[1] * a.rot[1] + a.rot[2] * a.rot[2];
+    if (t2 > 1e-12f) {
+        // Axis-angle rotation, then scale along each bind axis first (row vectors: v * S * R).
+        const float th = sqrtf(t2), ux = a.rot[0] / th, uy = a.rot[1] / th, uz = a.rot[2] / th;
+        const float c = cosf(th), s = sinf(th), v = 1.0f - c;
+        const float R[3][3] = {
+            { c + ux * ux * v, ux * uy * v - uz * s, ux * uz * v + uy * s },
+            { uy * ux * v + uz * s, c + uy * uy * v, uy * uz * v - ux * s },
+            { uz * ux * v - uy * s, uz * uy * v + ux * s, c + uz * uz * v } };
+        m.a0 = a.scale[0] * R[0][0]; m.a1 = a.scale[0] * R[1][0]; m.a2 = a.scale[0] * R[2][0];
+        m.b0 = a.scale[1] * R[0][1]; m.b1 = a.scale[1] * R[1][1]; m.b2 = a.scale[1] * R[2][1];
+        m.c0 = a.scale[2] * R[0][2]; m.c1 = a.scale[2] * R[1][2]; m.c2 = a.scale[2] * R[2][2];
+    }
     return m;
 }
 
-// Reshapes the mesh (breast / rear) when those sliders change. Finds the audited profile on first use.
-inline void ApplyMesh(CM2Model* model, State& s, const Values& vals) {
-    if (!s.meshSearched) {
-        s.meshSearched = true;
-        uint32_t count = model->GetBindVertexCount();
-        s.bind.resize(size_t(count) * 6);
-        for (uint32_t i = 0; i < count; ++i) {
-            C3Vector p, n;
-            model->GetBindVertex(i, p, n);
-            float* v = &s.bind[size_t(i) * 6];
-            v[0] = p.x; v[1] = p.y; v[2] = p.z;
-            v[3] = n.x; v[4] = n.y; v[5] = n.z;
-        }
-        s.meshProfile = BodyShapeMesh::FindProfile(s.bind.data(), count);
-        s.meshBreast = s.meshButt = 0.0f;
+// Finds the audited breast/rear profile on first use.
+inline void SearchMesh(CM2Model* model, State& s) {
+    if (s.meshSearched) {
+        return;
     }
+    s.meshSearched = true;
+    uint32_t count = model->GetBindVertexCount();
+    s.bind.resize(size_t(count) * 6);
+    for (uint32_t i = 0; i < count; ++i) {
+        C3Vector p, n;
+        model->GetBindVertex(i, p, n);
+        float* v = &s.bind[size_t(i) * 6];
+        v[0] = p.x; v[1] = p.y; v[2] = p.z;
+        v[3] = n.x; v[4] = n.y; v[5] = n.z;
+    }
+    s.meshProfile = BodyShapeMesh::FindProfile(s.bind.data(), count);
+    s.meshBreast = s.meshButt = s.meshButtBase = 0.0f;
+}
+
+// Reshapes the mesh (breast / rear) when those sliders change, or when the rear jiggle (buttExtra, a signed
+// amount added to ButtSize) has moved enough to see. Rebuilds are limited to about 30 a second.
+inline void ApplyMesh(CM2Model* model, State& s, const Values& vals, float buttExtra = 0.0f) {
+    SearchMesh(model, s);
 
     float breast = std::max(0.0f, vals.Get("BreastSize"));
-    float butt = std::max(0.0f, vals.Get("ButtSize"));
-    if (!s.meshProfile || (breast == s.meshBreast && butt == s.meshButt)) {
+    float base = std::max(0.0f, vals.Get("ButtSize"));
+    if (!s.meshProfile) {
+        return;
+    }
+
+    float butt = fabsf(buttExtra) < 0.004f ? base : base + buttExtra;
+    double now = JigglePhysics::Now();
+    bool sliderChanged = breast != s.meshBreast || base != s.meshButtBase;
+    bool jiggleStep = fabsf(butt - s.meshButt) >= 0.006f && now - s.meshStamp >= 0.033;
+    bool settled = butt == base && butt != s.meshButt;
+    if (!sliderChanged && !jiggleStep && !settled) {
         return;
     }
 
     s.meshBreast = breast;
+    s.meshButtBase = base;
     s.meshButt = butt;
+    s.meshStamp = now;
     uint32_t count = static_cast<uint32_t>(s.bind.size() / 6);
     if (breast == 0.0f && butt == 0.0f) {
         model->SetBodyShapeVertices(nullptr);
         return;
     }
+    if (!s.meshListReady) {
+        s.meshListReady = true;
+        BodyShapeMesh::AffectedVertices(s.meshProfile, s.bind.data(), count, s.meshList);
+    }
     float* shaped = new float[s.bind.size()];
-    BodyShapeMesh::Apply(s.meshProfile, s.bind.data(), count, breast, butt, shaped);
+    BodyShapeMesh::ApplyList(s.meshProfile, s.bind.data(), count, s.meshList, breast, butt, shaped);
     model->SetBodyShapeVertices(shaped);
 }
 
 // Drives one model from a set of values; call once a frame, after the engine's own spine/head twist has run.
 // twistSet/twistBase[0..1] are what that code wrote to the spine (key 4) and head (key 6) this frame.
-inline void Apply(CM2Model* model, const Values& vals, const bool twistSet[2], const C44Matrix twistBase[2]) {
+// jiggleMode: bit 0 = breast bone jiggle, bit 1 = rear mesh jiggle (rebuilds the mesh, so only for the local player).
+inline void Apply(CM2Model* model, const Values& vals, const bool twistSet[2], const C44Matrix twistBase[2], uint32_t jiggleMode = 0, const JigglePhysics::Motion* motion = nullptr) {
     if (!model || !model->IsLoaded()) {
         return;
     }
@@ -459,6 +512,13 @@ inline void Apply(CM2Model* model, const Values& vals, const bool twistSet[2], c
     }
 
     std::map<uint32_t, Accum> wanted;
+
+    // Soft-tissue jiggle, only on meshes that have the breast/rear profile (the female Retail bodies).
+    SearchMesh(model, s);
+    JigglePhysics::Frame jiggle;
+    if (jiggleMode && s.meshProfile) {
+        JigglePhysics::Update(model, s.jiggle, (jiggleMode & 2) != 0, jiggle, motion, twistSet[0] ? &twistBase[0] : nullptr);
+    }
 
     for (const Slider& slider : Sliders()) {
         float v = vals.Get(slider.name);
@@ -547,7 +607,17 @@ inline void Apply(CM2Model* model, const Values& vals, const bool twistSet[2], c
         }
     }
 
-    ApplyMesh(model, s, vals);
+    if (jiggleMode & 1) {
+        for (int i = 0; i < jiggle.breastCount; ++i) {
+            Accum& a = wanted[jiggle.breastBone[i]];
+            for (int k = 0; k < 3; ++k) {
+                a.move[k] += jiggle.breast[i][k];
+                a.rot[k] += jiggle.breastRot[i][k];
+            }
+        }
+    }
+
+    ApplyMesh(model, s, vals, (jiggleMode & 2) ? jiggle.butt : 0.0f);
 
     const uint32_t twistIndex[2] = { model->FindBoneIndexByKey(SpineKey), model->FindBoneIndexByKey(HeadKey) };
 
@@ -648,9 +718,9 @@ inline bool HasApplier(CM2Model* model) {
 }
 
 // The edited values on the creator preview or the local player's model.
-inline void ApplyEdited(CM2Model* model, const bool twistSet[2], const C44Matrix twistBase[2]) {
+inline void ApplyEdited(CM2Model* model, const bool twistSet[2], const C44Matrix twistBase[2], const JigglePhysics::Motion* motion = nullptr) {
     Edited().model = model;
-    Apply(model, Edited().values, twistSet, twistBase);
+    Apply(model, Edited().values, twistSet, twistBase, 3, motion);
 }
 
 } // namespace BodyShape

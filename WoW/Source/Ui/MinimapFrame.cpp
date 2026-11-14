@@ -13,6 +13,10 @@
 #include "Engine/Source/Frame/CSimpleTexture.h"
 #include "Engine/Source/FrameXML/XMLTree.h"
 #include "Engine/Source/Storm/H/storm.h"
+#if defined(WOWDECOMP_RETAIL_ASSETS)
+#include "Engine/Source/Retail/CascSource.h"
+#include "Engine/Source/Retail/RetailTerrain.h"
+#endif
 #include "Engine/Source/lua-5.1/src/lauxlib.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
 #include "WoW/Source/Object/ObjectClient/Object_C.h"
@@ -994,6 +998,13 @@ void MinimapShutdown() {
     s_md5Names.InternalClear(0);
 }
 
+#if defined(WOWDECOMP_RETAIL_ASSETS)
+// Not in the original: retail terrain keeps the area IDs this client's AreaTable knows, so zone text and music work.
+// Installed at startup, before the first map's tiles load; it reads AreaTable only when a tile converts.
+static bool AreaKnown(uint32_t area) { return g_areaTableDB.GetRecord(static_cast<int32_t>(area)) != nullptr; }
+static const bool s_areaFilterSet = (Retail::SetAreaFilter(AreaKnown), true);
+#endif
+
 // VERIFY: 885c45ba manual
 // OFFSET: 0x007F6730
 void MinimapInitialize(int32_t mapId) {
@@ -1228,6 +1239,16 @@ static int32_t MinimapBuildSource(const int32_t* tile, char* path, uint32_t size
     MINIMAPMD5NAME* name = s_md5Names.Ptr(path);
 
     if (!name) {
+#if defined(WOWDECOMP_RETAIL_ASSETS)
+        // Not in the original: a retail terrain map's tiles have no md5translate entry; the retail source names each
+        // one by its plain path when it reads the map's WDT.
+        char plain[260];
+        SStrPrintf(plain, sizeof(plain), "%s\\%s", s_minimapTexturePath, path);
+        if (Retail::SourceForPath(plain).Handles(plain)) {
+            SStrCopy(path, plain, size);
+            return 1;
+        }
+#endif
         SysMsgPrintf(STATUS_ERROR, 2, "No minimap texture: \"%s\"", path);
         *path = 0;
         return 0;

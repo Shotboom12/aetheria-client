@@ -62,7 +62,7 @@ bool LanternAllowed(const FrameInputs& in)
 
 float LanternAutoWeight(const FrameInputs& in)
 {
-    return std::max(LampNightWeight(in.sunElevation), std::clamp(in.indoors, 0.0f, 1.0f));
+    return std::max(LampHourWeight(in.dayFraction), std::clamp(in.indoors, 0.0f, 1.0f)); // HD 2026-11-05 lot J2: by the clock
 }
 
 float LanternTarget(const FrameInputs& in, const Config& cfg, float lanternLight)

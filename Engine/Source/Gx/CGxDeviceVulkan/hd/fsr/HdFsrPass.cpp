@@ -784,7 +784,7 @@ void AfterWorld() {
         NoteM1Cpu(0,begin);
     }
 
-    // Q1 (2026-11-01): the statuses report the measured share of frames with object motion.
+    // Q1 (HD 2026-11-01): the statuses report the measured share of frames with object motion.
     if(g.objectRequested){++g.omFrames;if(omThisFrame)++g.omComposed;if(g.omFrames>=120){Runtime::NoteObjectMotion(100.0*g.omComposed/g.omFrames);g.omFrames=g.omComposed=0;}}
     else{Runtime::NoteObjectMotion(-1.0);g.omFrames=g.omComposed=0;}
 
@@ -894,7 +894,7 @@ void AfterWorld() {
     // Disable FG explicitly to inspect motion; generation itself remains unchanged.
     if(g.motionDebug&&!gen&&EnsureObjectMotionEffect()&&present::WorldTargetDebugOutput(im)){
         LARGE_INTEGER begin{};if(HD::CataRenderPerf::Enabled())QueryPerformanceCounter(&begin);
-        // Diagnostic modes (2026-10-31): 2 = final vectors x16 (small/distant motion visible), 3 = object markers only.
+        // Diagnostic modes (HD, 2026-10-31): 2 = final vectors x16 (small/distant motion visible), 3 = object markers only.
         const uint32_t view=Settings::DebugView();
         const bool shown=view==3&&g.objectRequested&&im.objectMotion.view?objectMotionEffect.DebugObjects(M1Frame(im,im.native),im.objectMotion.view,im.output.view,512.f)
                         :objectMotionEffect.Debug(M1Frame(im,im.native),im.motion.image,im.motion.view,im.output.view,view==2?512.f:32.f);

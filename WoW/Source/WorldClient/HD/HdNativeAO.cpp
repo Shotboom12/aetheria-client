@@ -49,7 +49,7 @@ void World() {
     if(!g_theGxDevicePtr || g_theGxDevicePtr->DeviceApi()!=GxApi_Vulkan)return;
     if(!enabled){
         enabled=Var("hdAO","HD: ambient occlusion 0 off / 1 on","0");radius=Var("hdAORadius","HD: radius in yards 0.25..6","1");
-        strength=Var("hdAOStrength","HD: AO strength 0..3","0.85");half=Var("hdAOHalfRes","HD: bilateral half resolution","0");
+        strength=Var("hdAOStrength","HD: AO strength 0..3","0.85");half=Var("hdAOHalfRes","HD: bilateral half resolution","1"); /* HD lot A1 (Mado Nov 6): half resolution by default */
         quality=Var("hdAOQuality","HD: 0 low / 1 medium / 2 high / 3 ultra","1");temporal=Var("hdAOTemporal","HD: temporal accumulation","1");
         normals=Var("hdAONormals","HD: request geometry-buffer normals with depth-normal fallback","0");
         debug=Var("hdAODebug","HD: show AO alone","0",0);info=Var("hdAOInfo","HD: native AO status","off",0);

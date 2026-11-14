@@ -11,7 +11,7 @@ class Effect {
 public:
  bool Init(const WXL_VkRenderApi*);void BeginFrame(const Frame&);void EndFrame();
  bool CanDraw(const wxlvk::draw::Cmd&,bool wind)const;
- const char*WhyNot(const wxlvk::draw::Cmd&,bool wind)const; // DIAG M3 (2026-10-31): first failing CanDraw condition, "ok" otherwise
+ const char*WhyNot(const wxlvk::draw::Cmd&,bool wind)const; // DIAG M3 (HD 2026-10-31): first failing CanDraw condition, "ok" otherwise
  DrawData Record(const wxlvk::draw::Cmd&,const float misc[4]);void Commit(const DrawData&);
  VkDescriptorSetLayout Layout()const;VkDescriptorSet Set(uint32_t slot)const;
  bool Ready()const;bool Active()const;bool FrameSafe()const;const char*Error()const;

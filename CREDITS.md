@@ -28,6 +28,8 @@ Aetheria is built on the work of many people. Aetheria collects and integrates o
 | Furbolg | **Project Reforged** |
 | Naga animations | **Sirus** |
 | WXL race tooling (integrated into our client) | **Furioz, Corruption, the Eunoia team and Ithorgrim**, together with **WXL / Dokman** |
+| Retail female body models (Human, Blood Elf, Night Elf, Draenei, Nightborne, Void Elf, Lightforged, Haranir, Dracthyr visage, Skyborne) and the Sylvari female body | **Rwise** ("Idealistic Physics" models), used and redistributed by the Aetheria owner with Rwise's permission; Rwise asks that no one else redistribute them (packages/aetheria-models) |
+| Jiggle and cloak physics (JigglePhysics.h, CapePhysics.h) | Aetheria, jiggle parameters modelled on Rwise's physics setup |
 | Dual-form races (Saberon, Worgen, Dracthyr): creator and form switching | Shared credit: the Aetheria owner, **Medviten** and **Kalibros**, whose ideas together produced it |
 | Saberon visage mode (Vulpera and back) | The Aetheria owner |
 | Kyrian flight and mid-air combat | The Aetheria owner |
@@ -62,7 +64,7 @@ Aetheria is built on the work of many people. Aetheria collects and integrates o
 - **Dear ImGui by Omar Cornut and contributors** (MIT) - the F9 overlay, vendored (v1.91.9) in `Extensions/WxlHost/src/imgui`.
 - **mod-playerbots** and **iCore**'s city-life and pvp-life modules, **mod-transmog** and the other AzerothCore modules listed in [Modules.md](Modules.md); each module's author is credited in its own README and LICENSE.
 
-Original World of Warcraft assets belong to Blizzard Entertainment. No client files, MPQs or DBCs from the game are distributed here.
+Original World of Warcraft assets belong to Blizzard Entertainment. No client files, MPQs or DBCs from the game are distributed here. The archives in packages/aetheria-models are Aetheria's own replacement-model archives (credited to Rwise above), not Blizzard files.
 
 If a credit is missing or wrong, tell the Aetheria owner and it will be fixed.
 

@@ -207,6 +207,21 @@ bool Particles(std::vector<uint8_t>& b, const ModelFiles& files, std::string& re
                 }
             }
         }
+        // zSource: the legacy emitter sends particles away from (0, 0, zSource) when it is above 0. Retail writes 255 on
+        // emitters that have no source (the Cookout Campfire's fire and smoke), which the legacy emitter takes as a point
+        // 255 yd overhead, so everything streamed down. shortcut: values from 100 up are treated as that "none".
+        {
+            const size_t z = p + 0xf0;
+            for (uint32_t j = 0; j < U32(b, z + 12); ++j) {
+                const size_t pair = U32(b, z + 16) + size_t(j) * 8;
+                if (!Array(b, pair, 4)) continue;
+                for (uint32_t k = 0; k < U32(b, pair); ++k) {
+                    const size_t key = U32(b, pair + 4) + size_t(k) * 4;
+                    float value; uint32_t bits = U32(b, key); std::memcpy(&value, &bits, 4);
+                    if (value >= 100.0f) Put(b, key, 0);
+                }
+            }
+        }
         const size_t o = out.size();
         out.insert(out.end(), b.begin() + p, b.begin() + p + kLegacy);
         // 0x10000000: the texture field packs three 5-bit indices; draw the first.
@@ -971,6 +986,32 @@ bool PrepareModel(const std::vector<uint8_t>& bytes, std::vector<uint8_t>& prepa
             b[m] &= 0x1f; b[m + 1] = 0;
         }
     }
+    // Retail ribbons can blend several textures (the skyriding speed aura, 4640283) and use the last header byte;
+    // the legacy ribbon draws one texture and material: keep the first of each.
+    if (Array(b, 0x120, 176)) {
+        for (uint32_t i = 0; i < U32(b, 0x120); ++i) {
+            const size_t p = U32(b, 0x124) + size_t(i) * 176;
+            if (U32(b, p + 20) > 1) Put(b, p + 20, 1);
+            if (U32(b, p + 28) > 1) Put(b, p + 28, 1);
+            b[p + 175] = 0;
+        }
+    }
+    // Retail marks "no bounds" with an inverted box (min +1e7, max -1e7), mostly on collision bounds; legacy models
+    // use zeros. CMapDoodadDef turns the collision box into its world box (MapDoodadDef.cpp:65-78), so the sentinel
+    // made a 20,000 km doodad: invisible tree leaves (12elw_elwynn_treeleaves02) and shadows thrown about.
+    for (const size_t box : {size_t(0xA0), size_t(0xBC)}) {
+        if (b.size() < box + 28) break;
+        float v[7];
+        std::memcpy(v, b.data() + box, sizeof(v)); // min xyz, max xyz, radius
+        if (v[0] > v[3] || v[1] > v[4] || v[2] > v[5]) std::memset(b.data() + box, 0, sizeof(v));
+    }
+    // Retail writes 0 in the texture-transform lookup of models with no transforms (6390443, 915383); legacy files
+    // say "none" with 0xffff, which is what the renderer checks for.
+    if (Array(b, 0x98, 2))
+        for (uint32_t i = 0; i < U32(b, 0x98); ++i) {
+            const size_t at = U32(b, 0x9c) + size_t(i) * 2;
+            if (U16(b, at) != 0xffff && U16(b, at) >= U32(b, 0x60)) { b[at] = 0xff; b[at + 1] = 0xff; }
+        }
     if (!Validate(b, files, error)) return false;
     if (U32(b, 0x50) > 256 || U32(b, 0x60) > 255) return Fail(error, "Retail texture/transform count exceeds legacy renderer limits");
     // Retail split the old 32-bit blend duration into two 16-bit durations.
@@ -1063,7 +1104,7 @@ bool ValidateSkin(const std::vector<uint8_t>& b, const std::vector<uint8_t>& m, 
         uint32_t n = U16(b, p + 14);
         uint16_t shader = U16(b, p + 2);
         if (!n || n > 3 || (n == 3 && shader != 0x8010) ||
-            ((shader & 0x8000) && !((shader >= 0x8001 && shader <= 0x8003 && n == 2) ||
+            ((shader & 0x8000) && shader != 0x8000 && !((shader >= 0x8001 && shader <= 0x8003 && n == 2) ||
                 (shader == 0x8010 && n == 3) || ((shader == 0x8011 || shader == 0x8012) && n == 2))))
             return Fail(error, "Retail shader or texture count is not supported yet");
         // The batch geoset index (+6) is unused by the legacy renderer and may exceed the section count in newer models.
@@ -1190,6 +1231,15 @@ bool PrepareSkin(std::vector<uint8_t>& b, const std::vector<uint8_t>& m, std::st
         } else if (shader == 0x8003 || shader == 0x4014) {
             shader = shader == 0x8003 ? 0x8010 : 0x8011;
             b[p] = uint8_t(shader); b[p + 1] = uint8_t(shader >> 8);
+        } else if ((shader >= 0x8004 && shader <= 0x8007) || shader == 0x800a || shader == 0x800b || (shader >= 0x800d && shader <= 0x800f)
+            || shader == 0x8012) {
+            // A base texture plus an additive (glow) layer: Opaque/Mod_AddAlpha(_Alpha, _Wgt), Mod_Add_Alpha (retail
+            // M2ShaderTable 4-7, 10, 11, 13-15), and 18 Mod_Dual_Crossfade. The two-texture fallback below draws them
+            // Mod_Mod, multiplying the base by a mostly black glow map (the Cookout Campfire's stones, 0x800a, came out
+            // black). Draw the base texture with the plain combiner. shortcut: no glow layer; write the additive combiners
+            // if an emissive piece looks flat.
+            b[p] = b[p + 1] = 0;
+            b[p + 12] = 1; b[p + 13] = 0;
         } else if (shader == 0x8015) {
             // Diffuse_EdgeFade_T1_T2 / Combiners_Mod_Mod: the 3.3.5 client has no edge-fade vertex shader, so draw it without the fade.
             b[p] = 0x12; b[p + 1] = 0x80;
@@ -1206,6 +1256,15 @@ bool PrepareSkin(std::vector<uint8_t>& b, const std::vector<uint8_t>& m, std::st
             // Draw them with their first texture and the plain opaque combiner instead of failing the model.
             b[p] = b[p + 1] = 0;
             b[p + 12] = 1; b[p + 13] = 0;
+        } else if ((shader & 0x8000) && U16(b, p + 12) == 1) {
+            // Other single-texture explicit shaders (0x8022 on Founder's Point doodads): draw the texture with
+            // the plain combiner, as the character-layer fallback above does. shortcut: loses the retail combiner's
+            // extra term; map the shader exactly if one of these looks wrong.
+            b[p] = b[p + 1] = 0;
+        } else if ((shader & 0x8000) && U16(b, p + 12) == 2) {
+            // Other two-texture explicit shaders (the skyriding speed aura's 0x8021): draw with Diffuse_T1_T2 /
+            // Combiners_Mod_Mod. shortcut: approximate combiner, map the shader exactly if an effect looks wrong.
+            b[p] = 0x12; b[p + 1] = 0x80;
         } else if (shader & 0x8000) {
             return Fail(error, ("Retail explicit shader is not implemented yet: 0x" + HexWord(shader) + " in batch " + std::to_string(i) + " (textures " + std::to_string(U16(b, U32(b, 40) + size_t(i) * 24 + 14)) + ")").c_str());
         }

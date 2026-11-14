@@ -24,6 +24,10 @@ namespace {
     float s_refreshDegrees=.5f;
     int32_t s_nextSunBand=0;
     bool s_texelSnap=true;
+    // HD 2026-11-04 lot S3 (hdShadowFarEvery): cascaded mode only. The 640 yd cascade (band 2) is gathered, queried and
+    // drawn every N frames; between them it keeps its texture, its centre (m_lastPos) and the sun it was drawn with, so
+    // the matrices PostUpdate builds still match the texture. 1 = every frame, the original path.
+    int32_t s_farEvery=1;uint32_t s_farCounter=0;bool s_farValid=false;C3Vector s_farSun;
     // HD: the light-space axes GxuXformCreateLookAtXXX builds for a shadow band (z toward the light's travel,
     // x = cross(up, z), y = cross(z, x)). False when degenerate.
     bool LightAxes(const C3Vector& sun,const C3Vector& up,double* x,double* y){
@@ -45,6 +49,7 @@ namespace {
     }
     void ResetSunBands(){for(auto& b:s_sunBands)b=SunBandState{};s_nextSunBand=0;}
     const C3Vector& ReadSun(int32_t i){
+        if(i==2&&s_farEvery>1&&s_farValid&&CShadowCache::GetShadowMode()>=SHADOW_VERY_HIGH)return s_farSun; // HD 2026-11-04 lot S3
         auto& b=CShadowCache::s_extShadowBands[i];auto& meta=s_sunBands[i];
         return s_sunCache&&meta.valid[b.m_current]?meta.texture[b.m_current]:CShadowCache::s_sunDir;
     }
@@ -74,6 +79,7 @@ void CShadowCache::ConfigureSunCache(bool enabled,float degrees){
 }
 C3Vector CShadowCache::BandSunDirection(int32_t band){return band>=0&&band<3?ReadSun(band):s_sunDir;}
 void CShadowCache::ConfigureTexelSnap(bool enabled){s_texelSnap=enabled;}
+void CShadowCache::ConfigureFarEvery(int32_t every){every=every<1?1:(every>8?8:every);if(every!=s_farEvery){s_farEvery=every;s_farCounter=0;s_farValid=false;}} // HD 2026-11-04 lot S3
 void CShadowCache::BandTexelPhase(int32_t band,float* u,float* v){
     *u=*v=-1.0f;if(band<0||band>2)return;auto& b=s_extShadowBands[band];
     const double texel=BandTexel(b.m_radius);double x[3],y[3];if(!(texel>0)||!LightAxes(ReadSun(band),b.m_dir,x,y))return;
@@ -632,8 +638,11 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
         }
     } else {
         frame = CShadowCache::s_frameCounter;
+        // HD 2026-11-04 lot S3: on a held frame band 2 is left out (m_lastBand stays 1: not queried, not drawn).
+        const bool hdFarHold = s_farEvery > 1 && s_farValid && (++s_farCounter % static_cast<uint32_t>(s_farEvery)) != 0;
 
         for (uint32_t i = 0; i < 3; i++) {
+            if (i == 2 && hdFarHold) break;
             CShadowBand& band = CShadowCache::s_extShadowBands[i];
 
             data.m_textureIndex[i] = 0;
@@ -720,7 +729,9 @@ void CShadowCache::RenderBands(CShadowCacheQueryData& data) {
             target = TextureGetGxTex(band.m_textures[data.m_textureIndex[i]], 1, nullptr);
         }
 
+        const uint64_t hdPerf=HDShadowDiag::PerfBegin(); // HD 2026-11-04 lot S1
         const int32_t rendered=CShadowCache::s_renderCallback(data, i, target, colorTarget, band.m_dir, RenderSun(i));
+        HDShadowDiag::PerfEnd(2+i,hdPerf);
         if(s_sunCache&&rendered){
             auto& meta=s_sunBands[i];
             if(mode<SHADOW_VERY_HIGH){
@@ -733,6 +744,7 @@ void CShadowCache::RenderBands(CShadowCacheQueryData& data) {
                 }
             }else{meta.texture[0]=s_sunDir;meta.valid[0]=true;}
         }
+        if(i==2&&mode>=SHADOW_VERY_HIGH){s_farValid=rendered!=0;s_farSun=RenderSun(2);s_farCounter=0;} // HD 2026-11-04 lot S3
     }
 }
 
@@ -826,6 +838,7 @@ CShadowCacheQueryData::CShadowCacheQueryData() {
 // OFFSET: 0x00875760
 void CShadowCache::ClearBandTextures() {
     ResetSunBands(); // HD: metadata cannot outlive the textures it describes
+    s_farValid=false;s_farCounter=0; // HD 2026-11-04 lot S3: a cleared band 2 is redrawn at once
     if (CShadowCache::s_shadowMode <= SHADOW_MEDIUM) {
         CShadowCache::s_needsRebuild = 0;
         return;
@@ -1057,6 +1070,7 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
 
     CShadowCacheQueryData data;
     CShadowCache::s_frameCounter++;
+    uint64_t hdPerfDyn=HDShadowDiag::PerfBegin(); // HD 2026-11-04 lot S1: the dynamic part, up to the bands
 
     float radius = CShadowCache::s_extDynShadow.m_radius;
     data.m_radius[0] = radius;
@@ -1136,6 +1150,7 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
         CShadowCache::s_renderCallback(data, 0, target, colorTarget, CShadowCache::s_extDynShadow.m_dir, CShadowCache::s_sunDir);
     }
 
+    HDShadowDiag::PerfEnd(0,hdPerfDyn);
     if (mode > SHADOW_MEDIUM) {
         if (CShadowCache::s_needsRebuild) {
             CShadowCache::ClearBandTextures();
@@ -1154,7 +1169,9 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
                 data.m_useFrustum = 1;
             }
 
+            const uint64_t hdPerfGather=HDShadowDiag::PerfBegin(); // HD 2026-11-04 lot S1
             CShadowCache::GatherBands(data, pos, frustum, useBandCull);
+            HDShadowDiag::PerfEnd(1,hdPerfGather);
             CShadowCache::RenderBands(data);
         }
     }

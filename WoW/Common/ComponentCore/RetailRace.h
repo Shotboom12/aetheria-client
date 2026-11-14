@@ -103,6 +103,8 @@ void RetailLookCreateFooter(CDataStore* packet);
 bool CharacterStartZoneSet(uint8_t zone);
 uint8_t CharacterStartZoneGet();
 void CharacterStartZoneCreateFooter(CDataStore* packet);
+// The look a component holds right now, as it would be saved (the housing merchant customizer).
+bool RetailRaceCaptureLook(CCharacterComponent* character, CharacterRetailLook::Look& look);
 void RetailRaceSetLook(uint64_t guid, const CharacterRetailLook::Look& look);
 // The form (an app::Form) a character's saved look names, 0 if unknown: the model to create for it.
 uint32_t RetailRaceLookForm(uint64_t guid);

@@ -238,4 +238,43 @@ void OsSleep(uint32_t milliseconds) {
     Sleep(milliseconds);
 }
 
+// HD P1 (HD 2026-11-04): see TimeManager.h.
+int64_t OsQpcNow() {
+    LARGE_INTEGER count;
+    QueryPerformanceCounter(&count);
+    return count.QuadPart;
+}
+
+int64_t OsQpcFrequency() {
+    static int64_t frequency = 0;
+    if (!frequency) {
+        LARGE_INTEGER f;
+        frequency = QueryPerformanceFrequency(&f) && f.QuadPart > 0 ? f.QuadPart : 1000;
+    }
+    return frequency;
+}
+
+void OsWaitUntilQpc(int64_t deadline) {
+    const int64_t frequency = OsQpcFrequency();
+    const int64_t spin = frequency / 1000;   // the last millisecond is spun: the timer wakes within ~0.5 ms
+    // Windows 10 1803+: a high-resolution waitable timer, without changing the process timer resolution.
+    static HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */, TIMER_ALL_ACCESS);
+    for (;;) {
+        const int64_t left = deadline - OsQpcNow();
+        if (left <= 0) return;
+        if (left > spin + spin / 2) {
+            if (timer) {
+                LARGE_INTEGER due;
+                due.QuadPart = -((left - spin) * 10000000 / frequency);   // relative, 100 ns units
+                if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+                    WaitForSingleObject(timer, INFINITE);
+                    continue;
+                }
+            }
+            if (left > 20 * spin) { Sleep(1); continue; }   // no high-resolution timer: Sleep only when far away
+        }
+        YieldProcessor();
+    }
+}
+
 #endif

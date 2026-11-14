@@ -156,6 +156,7 @@ void RegisterOnce() {
     missileImpact=Register("hdLvMissileImpact","Lumen R2: seconds of light where a spell hits (0 = none, default 0.5)","0.5",true);
     spellGround=Register("hdLvSpellGround","Lumen R2: 1 = spell lights and the lantern light the ground and every surface, whatever hdLvLampClasses (default 0)","0",true);
     lampScan=Register("hdLvLampScan","Lumen R2 lamps: 1 = write the lit native lamps missing from the R2 catalogue to Logs\\lumen-lampes-manquantes.txt (default 0)","0",false);
+    {static bool hdDef1Once=false;if(!hdDef1Once){hdDef1Once=true;if(lampScan&&lampScan->m_intValue!=0)lampScan->InternalSet("0",true,false,false,false);}} // HD DEF1: diagnostic journal off at every start (a test never leaves it on)
     lampForever=Register("hdLvLampForever","Lumen R2 lamps: 1 = recognised lamps take the For Ever colour and leave ground and models to For Ever (default), 0 = R2 keeps its own colours and lights every class of hdLvLampClasses","1",true);
     Status(lampInfo,"off");
 }
@@ -184,7 +185,7 @@ bool VisitLight(void* user,const HD::CachedLight& light) {
 }
 // Lot L4 (2026-11-03): the HdLights cache is not readable on every frame (frame stamp check). Without a fallback a
 // recognised lamp lit models and terrain on the frames where the cache was missed and not on the others: the lamp
-// posts and the horses flashed orange / dark (video 2026-11-02 22:29). Keep the last good audit for a short time.
+// posts and the horses flashed orange / dark (Max's video 2026-11-02 22:29). Keep the last good audit for a short time.
 struct LastAudit {std::array<HD::Lumen::SurfacePolicy,1024> policies{};uint32_t count=0,applied=0;int age=1000;};
 LastAudit lastAudit;
 constexpr int kKeepAuditFrames=120;
@@ -317,7 +318,9 @@ void FillGameSpells(const float* camPos,double now) {
         return d(a.position)<d(b.position);});
     if(gameSpellLights.size()>12) gameSpellLights.resize(12);
     // journal Logs\lumen-projectiles.txt (proof for each test), at most 3000 lines, 0.1 s apart
-    if(!gameSpellLights.empty()&&loggedMissileLines<3000&&now-lastMissileLog>=0.1) {
+    // REL1 (2026-11-06): written only when hdLvSpellLog is 1 (off by default for players).
+    const CVar* spellLog=CVar::LookupRegistered("hdLvSpellLog");
+    if(spellLog&&spellLog->m_intValue!=0&&!gameSpellLights.empty()&&loggedMissileLines<3000&&now-lastMissileLog>=0.1) {
         lastMissileLog=now;
         if(std::FILE* f=std::fopen("Logs\\lumen-projectiles.txt","a")) {
             for(const auto& m:missilesSeen) {

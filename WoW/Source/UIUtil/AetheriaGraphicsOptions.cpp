@@ -37,6 +37,8 @@ void RegisterAetheriaRendererOptions() {
         {"hdLights", "1"},
         {"hdSunShadows", "0"}, {"hdSunQuality", "1"}, {"hdSunStrength", "1"}, {"hdSunContactLength", "1.5"},
         {"hdAONormals", "0"},
+        {"jigglePhysics", "0"}, {"jiggleButt", "1"}, {"jiggleStrength", "2"},
+        {"capePhysics", "1"}, {"capeStrength", "2"},
     };
     for (const auto& option : options) {
         RegisterGraphicsOptionCVar(option[0], option[1]);
@@ -544,6 +546,22 @@ p:Slider("grassThinMinShare", "Thinnest share", "Share of plants drawn at that d
 p:Done()
 )lua";
 
+    // Soft-tissue physics (Engine/Source/Retail/JigglePhysics.h). Off by default.
+    static const char physicsScript[] = R"lua(
+if not VideoOptionsFrame or not WowDecompBuildPage or WowDecompPhysicsPanel then return end
+
+local p = WowDecompBuildPage("WowDecompPhysicsPanel", "Aetheria Physics", "Optional soft-tissue motion for female characters. Off by default; it moves with the character and settles when they stop.")
+p:Header("Jiggle physics")
+p:Check("jigglePhysics", "Enable jiggle physics", "Adds a small spring motion to female characters' chests. Off by default. Applies to your character and to other players nearby, and in character select.")
+p:Check("jiggleButt", "Include the rear", "When jiggle physics is on, also moves the rear. Turn this off if you only want the chest.")
+local StrengthNames = { "1 - Subtle", "2 - Natural", "3 - Strong", "4 - Exaggerated" }
+p:Slider("jiggleStrength", "Jiggle strength", "How far it moves: 1 is a hint, 2 is the default, 4 is exaggerated. The speed stays the same.", 1, 4, 1, function(v) return StrengthNames[math.floor(v + 0.5)] or "2 - Natural" end, 1)
+p:Header("Cloak physics")
+p:Check("capePhysics", "Enable cloak physics", "Cloaks sway behind the character and stream back while running. On by default; applies to your character and to other players nearby.")
+p:Slider("capeStrength", "Cloak strength", "How far the cloak swings: 1 is a hint, 2 is the default, 4 is exaggerated.", 1, 4, 1, function(v) return StrengthNames[math.floor(v + 0.5)] or "2 - Natural" end, 2)
+p:Done()
+)lua";
+
     static const char overlayScript[] = R"lua(
 -- The overlay itself. Created hidden and shown by the showPerformance CVar; a hidden frame runs no OnUpdate, so it
 -- costs nothing while it is off. The position is saved in perfOverlayPos when it is dropped.
@@ -637,6 +655,7 @@ end
     FrameScript_Execute(treeWindScript, "NativeTreeWindPage", nullptr);
     FrameScript_Execute(worldWindScript, "NativeWorldWindPage", nullptr);
     FrameScript_Execute(surfaceCoverScript, "NativeSurfaceCoverPage", nullptr);
+    FrameScript_Execute(physicsScript, "NativePhysicsPage", nullptr);
     const std::string lumenveilOptions = LumenveilOptions::BuildScript();
     FrameScript_Execute(lumenveilOptions.c_str(), "NativeLumenveilOptions", nullptr);
     FrameScript_Execute(overlayScript, "NativeEsteriaOverlay", nullptr);

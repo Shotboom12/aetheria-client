@@ -545,6 +545,17 @@ uint32_t IndexOf(CCharacterComponent* character, const std::vector<OptionInfo>& 
 std::vector<uint32_t> EligibleIndices(CCharacterComponent* character, const std::vector<OptionInfo>& options, size_t index) {
     const auto& option = options[index];
     if (Retail::NormalElfDemonAccessory(character->m_data.m_preferences.m_raceID, option.id)) return {0};
+    // Man'ari Eredar (local race 28) use the Retail Draenei options (RetailRaces.csv 28;11) but keep only the red/fel
+    // skin colours: the blue ones are picker positions 1-17, 19 and 20 (owner-checked, 2026-11-12). Raw indexes stay
+    // unchanged; only the creator's view is filtered.
+    if (character->m_data.m_preferences.m_raceID == 28 && option.name == "Skin Color") {
+        std::vector<uint32_t> kept;
+        for (size_t position = 1; position <= option.creationIndices.size(); ++position) {
+            const bool blue = position <= 17 || position == 19 || position == 20;
+            if (!blue) kept.push_back(option.creationIndices[position - 1]);
+        }
+        if (!kept.empty()) return kept;
+    }
     if (option.id != 17) return option.creationIndices;
     uint32_t style = 0;
     for (size_t i = 0; i < options.size(); ++i) if (options[i].id == 16) {
@@ -2213,6 +2224,8 @@ bool ApplyLook(CCharacterComponent* character, const CharacterRetailLook::Look& 
 
 }  // namespace
 
+bool RetailRaceCaptureLook(CCharacterComponent* character, CharacterRetailLook::Look& look) { return CaptureLook(character, look); }
+
 void RetailLookCreateFooter(CDataStore* packet) {
     CharacterRetailLook::Look look;
     if (!packet || !CaptureLook(CCharacterCreation::m_character, look)) return;
@@ -2560,6 +2573,7 @@ void RetailRaceEyeLightning(CCharacterComponent*, bool) {}
 void RetailRaceCreateEyeEffects(CDataStore*) {}
 void BodyShapeCreateFooter(CDataStore*, bool) {}
 void RetailLookCreateFooter(CDataStore*) {}
+bool RetailRaceCaptureLook(CCharacterComponent*, CharacterRetailLook::Look&) { return false; }
 void RetailRaceSetLook(uint64_t, const CharacterRetailLook::Look&) {}
 void RetailRaceClearLooks() {}
 void RetailRaceSetParkedLook(uint64_t, const CharacterRetailLook::Look&) {}

@@ -16,7 +16,7 @@
 #include <map>
 #include <mutex>
 #include <utility>
-#include <vector>
+#include <vector> // HD (HD) S5
 #include <xmmintrin.h>
 #if defined(_MSC_VER)
 #include <malloc.h>
@@ -2173,6 +2173,17 @@ void CM2Model::SetBoneFlagsByIndex(uint32_t index, uint32_t flags, uint32_t mask
     }
 }
 
+bool CM2Model::GetBoneAnimatedMatrix(uint32_t index, C44Matrix& matrix) {
+    if (!this->IsLoaded() || !this->m_boneMatrices || index >= this->GetBoneCount()) {
+        return false;
+    }
+
+    // The engine's bone matrices end in the model-to-camera transform (m_matrixF4 = world * view), so they move
+    // whenever the camera does. Return the bone in the model's own space instead.
+    matrix = this->m_boneMatrices[index] * this->m_matrixF4.Inverse();
+    return true;
+}
+
 void CM2Model::SetBoneProceduralTransformByIndex(uint32_t index, const C44Matrix& matrix) {
     if (index >= this->GetBoneCount()) {
         return;
@@ -2793,7 +2804,9 @@ void CM2Model::AnimateST() {
         if (visible && HD::ExtraLamps::HideLight(this->m_shared, this, i, data->m_lights.m_count)) visible = 0; // HD: hdExtraLampsObjects
 
         // HD: our added lamp light is lit at night only (hdExtraLampsDay): colour from its tracks times the night
-        float night = HD::ExtraLamps::LightScale(this->m_shared, i, data->m_lights.m_count);
+        float night = HD::ExtraLamps::LightScale(this->m_shared, i, data->m_lights.m_count, this);
+        // HD J1: the Blizzard lights of outdoor map decor (lamps, torches, fires) are lit at night only, same fade
+        if (night < 0.0f && (this->m_fFlags & 0x8000)) night = HD::ExtraLamps::DoodadLightScale(this);
         if (night >= 0.0f) {
             float dir = light->m_diffuseIntensityTrack.m_currentValue * this->m_effectiveAlpha * night;
             float amb = light->m_ambientIntensityTrack.m_currentValue * this->m_effectiveAlpha * night;
@@ -3185,8 +3198,32 @@ void CM2Model::RenderBatchShadowMap(int32_t untextured, M2Batch* batch, const CM
         M2ReportBoneLimit(m_shared?m_shared->m_fileName:"?",section?section->m_boneCount:0,1);
         return;
     }
+    if (!this->m_shared || !this->m_shared->m_data || !batch) {
+        return;
+    }
+    M2Data* shadowData = this->m_shared->m_data;
+    const uint32_t firstBone = section->m_boneComboIndex;
+    if (firstBone > shadowData->m_boneCombos.m_count ||
+        section->m_boneCount > shadowData->m_boneCombos.m_count - firstBone ||
+        index >= list.m_count || list.m_batches[index].m_count > list.m_count - index) {
+        return;
+    }
+    for (uint32_t i = 0; i < section->m_boneCount; ++i) {
+        if (shadowData->m_boneCombos[firstBone + i] >= shadowData->m_bones.m_count) {
+            return;
+        }
+    }
+    for (uint32_t n = 0; n < list.m_batches[index].m_count; ++n) {
+        CM2Model* model = list.m_batches[index + n].m_model;
+        if (!model || model->m_shared != this->m_shared || !model->m_boneMatrices) {
+            return;
+        }
+    }
     if (!untextured) {
         M2Data* data = this->m_shared->m_data;
+        if (batch->m_textureComboIndex >= data->m_textureCombos.m_count) {
+            return;
+        }
         uint16_t textureIndex = data->m_textureCombos[batch->m_textureComboIndex];
 
         if (textureIndex >= data->m_textures.m_count) {
@@ -3297,6 +3334,8 @@ void CM2Model::RenderModelBatchListShadowMap(int32_t untextured, const CModelBat
                 int32_t indexed = model->m_optGeo ? model->SetIndices() : shared->SetIndices();
 
                 if (!indexed || !shared->SetVertices(0)) {
+                    i += entry->m_count;
+                    prevModel = nullptr;
                     continue;
                 }
             }
@@ -6628,7 +6667,9 @@ void CM2Model::AnimateSM() {
         return;
     }
 
-    if (this->m_attachParent || this->m_shared->m_billboardBoneCount) {
+    // Not in the original binary: the bone count. The path below only moves bone 0, so an off-screen caster with more
+    // bones (common in retail doodads) kept the others in an older camera's view space and its shadow stretched.
+    if (this->m_attachParent || this->m_shared->m_billboardBoneCount || this->m_shared->m_data->m_bones.m_count > 1) {
         this->Animate();
         return;
     }
@@ -7028,6 +7069,7 @@ CM2Model::~CM2Model() {
     HD::Fsr::Rigid::Forget(this);
 #endif
     HD::ExtraLamps::SetObjectModel(this, false); // HD
+    HD::ExtraLamps::SetInteriorModel(this, false); // HD J1
     CM2Model* model30 = this->m_model30;
 
     if (model30 && model30->m_refCount-- == 1) {
@@ -7433,10 +7475,60 @@ static bool CanCombineBatches(const CModelBatch& a, const CModelBatch& b) {
     return sectionA->m_boneInfluences == sectionB->m_boneInfluences;
 }
 
+// HD (HD) S5, 5 nov 2026: same order, less memory chasing. SModelBatchLessThan reads model -> optGeo/shared ->
+// batches -> skin section for both sides of EVERY comparison (about 2 n log n chases). Here each batch's four sort
+// fields are read once, the same std::sort runs over (fields, batch) records with the same comparison on the
+// fields, and the batches are written back: std::sort's moves depend only on the comparison results, so the
+// batches come out in exactly the same order as before, ties included.
+namespace {
+    struct SModelBatchSortKey {
+        uint16_t influences;
+        uintptr_t optGeo;
+        uintptr_t shared;
+        uint32_t batchIndex;
+        CModelBatch batch;
+    };
+
+    struct SModelBatchSortKeyLess {
+        bool operator()(const SModelBatchSortKey& a, const SModelBatchSortKey& b) const {
+            if (a.influences != b.influences) return a.influences < b.influences;
+            if (a.optGeo != b.optGeo) return a.optGeo < b.optGeo;
+            if (a.shared != b.shared) return a.shared < b.shared;
+            return a.batchIndex < b.batchIndex;
+        }
+    };
+}
+
 // VERIFY: 01820d35 manual
 // OFFSET: 0x00832DD0
 void CModelBatchList::Optimize() {
-    std::sort(this->m_batches, this->m_batches + this->m_count, SModelBatchLessThan());
+    thread_local std::vector<SModelBatchSortKey> keys;
+    keys.resize(this->m_count);
+
+    for (uint32_t i = 0; i < this->m_count; i++) {
+        const CModelBatch& batch = this->m_batches[i];
+        CM2Model* model = batch.m_model;
+        M2SkinSection* section;
+
+        if (model->m_optGeo) {
+            section = &model->m_optGeo->m_skinSections[model->m_optGeo->m_batches[batch.m_batchIndex].m_skinSectionIndex];
+        } else {
+            section = &model->m_shared->m_skinSections[model->m_shared->m_skinData->m_batches[batch.m_batchIndex].m_skinSectionIndex];
+        }
+
+        SModelBatchSortKey& key = keys[i];
+        key.influences = section->m_boneInfluences;
+        key.optGeo = reinterpret_cast<uintptr_t>(model->m_optGeo);
+        key.shared = reinterpret_cast<uintptr_t>(model->m_shared);
+        key.batchIndex = batch.m_batchIndex;
+        key.batch = batch;
+    }
+
+    std::sort(keys.begin(), keys.end(), SModelBatchSortKeyLess());
+
+    for (uint32_t i = 0; i < this->m_count; i++) {
+        this->m_batches[i] = keys[i].batch;
+    }
 
     for (uint32_t i = 0; i < this->m_count; i += this->m_batches[i].m_count) {
         CModelBatch* batch = &this->m_batches[i];

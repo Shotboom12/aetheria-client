@@ -803,9 +803,12 @@ float SunVisibility(float3 viewPosition, SunMarch march, float jitter)
 {
     float visibility = 1;
     float marching = 1;
+    // F3 (HD 2026-11-05): leave the loop as soon as the march is over (marching never comes back to 1 and k only
+    // grows), instead of running the remaining empty iterations. Same visibility, fewer loop trips.
     [loop] for (int k = 0; k < kShaftSunSteps; k++)
     {
-        [branch] if (marching > 0 && k < march.steps)
+        [branch] if (!(marching > 0 && k < march.steps))
+            break;
         {
             float fraction = (k + march.firstStep + jitter) / march.steps;
             float spacing = fraction * lerp(1, fraction, march.quadraticSpacing);
@@ -998,7 +1001,9 @@ float4 LvPixel(float2 lowResTexel)
     float3 viewDirection = viewRay / distancePerViewZ;
     float depth = SampleDepth(sDepth, pixel);
     float skyMask = IsSky(depth) ? 1 : 0;
-    float hazeFromSky = HazeFromSkyShare() * (1 - skyMask);
+    // F1 (HD 2026-11-05): an empty pixel below the horizon (no sea floor, past the far clip) takes the
+    // sky-tinted haze like the far terrain beside it; only real sky above the horizon keeps the sunlit colour.
+    float hazeFromSky = HazeFromSkyShare() * (1 - skyMask * smoothstep(0.0, 0.02, ViewToWorldDirection(viewDirection).z));
     float3 hazeColour = HazeFromSky(pixel);
     float viewZ = LinearDepth(depth);
     float horizonBlend = max(BeyondFarClip(depth) ? 1 : 0, smoothstep(HorizonBlendStart(), FarClip(), viewZ));
@@ -1008,6 +1013,11 @@ float4 LvPixel(float2 lowResTexel)
     float jitter = StepJitter(lowResTexel);
     float3 cameraWorld = CameraPositionWorld();
     float3 directionWorld = ViewToWorldDirection(viewDirection);
+    // F2 (HD 2026-11-05): at and below the horizon nothing is drawn past the far clip (the native fog ends there).
+    // March no further than the far clip there, not MaxFogDistance (4x farther): looking toward the light, 5000 yards of
+    // fog at eye height saturated to white over the empty sea and the far terrain. The cap fades out over the first
+    // ~3 degrees above the horizon, so the real sky keeps its full march.
+    marchLength = min(marchLength, lerp(FarClip() * distancePerViewZ, MaxFogDistance(), smoothstep(0.0, 0.05, directionWorld.z)));
     // Preserve the native fog's existing air/water boundary. This is a read-only
     // plane supplied by the water owner, not a new water effect or depth write.
     if(LvConstants[127].y>0.5 && abs(directionWorld.z)>1e-6){float planeDistance=(LvConstants[127].x-cameraWorld.z)/directionWorld.z;if(planeDistance>0)marchLength=min(marchLength,planeDistance);}
@@ -1051,7 +1061,9 @@ float4 LvPixel(float2 lowResTexel)
             float sunVisibility =
                 LightAboveHorizon() *
                 TerrainLight(TerrainShadowUvAtCamera() + terrainUvPerDistance * sampleDistance, sampleHeight);
-            [branch] if (ShadowsEnabled())
+            // F3 (HD 2026-11-05): when no light reaches this step (night side of the horizon, terrain shadow),
+            // sunVisibility stays 0 whatever the march and the clouds say (0 times a value in 0..1), so both are skipped.
+            [branch] if (ShadowsEnabled() && sunVisibility != 0)
             {
                 SunMarch march = ShortSunMarch(sampleDistance);
                 float marchJitter = jitter;
@@ -1072,7 +1084,7 @@ float4 LvPixel(float2 lowResTexel)
                 sunVisibility *= SunVisibility(samplePosition, march, marchJitter);
 #endif
             }
-            [branch] if (CloudStrength(cCloudShape) > 0)
+            [branch] if (CloudStrength(cCloudShape) > 0 && sunVisibility != 0)
                 sunVisibility *= 1 - CloudStrength(cCloudShape) *
                                          CloudCoverAt(sClouds, cCloudMap, cCloudShape,
                                                       float3(directionWorld.xy * sampleDistance, sampleHeight - cameraWorld.z),
@@ -1080,7 +1092,9 @@ float4 LvPixel(float2 lowResTexel)
             float3 stepRadiance = 0;
             float stepOpticalDepth = 0;
             float3 shaftScatter = 0;
+            // F3 (HD 2026-11-05): a layer with density 0 adds exactly 0 (its optical depth is 0), so it is skipped.
             [unroll] for (int j = 0; j < kFogLayers; j++)
+                [branch] if (LoadFogLayer(j).density != 0)
                 AccumulateLayer(LoadFogLayer(j), phase[j], skyUpward, hazeColour, hazeFromSky, stepStart,
                                 sampleDistance, stepLength, sampleHeight, sunVisibility, scales, ceiling,
                                 stepRadiance, stepOpticalDepth, shaftScatter);

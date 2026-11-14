@@ -59,6 +59,21 @@ namespace {
     constexpr uint32_t kDisplacements = 0;
     constexpr uint32_t kRippleMaps = 2;       // HD: tranche 2, Cata's dynamic displacement maps (CataRipples.cpp)
     constexpr float kPlaneMatch = 0.25f;   // yards: an instance this close to the mirror's plane takes its reflection
+    // HD L19 (2026-11-03): a chunk batch's sphere centre is the middle of ALL its water (a lake and the stream that
+    // leaves it), not the lake's height, so the batch next to the mirrored one could fall back to the sky reflection:
+    // a straight seam on the lake at the batch border. With hdCataWaterPlaneRange 1 a chunk batch whose water reaches
+    // the plane (its lowest..highest within kPlaneMatch) takes the reflection too, like Cata where every reflecting
+    // water uses the closest plane. Batches taller than kRangeMax (falls, rapids) keep the old test.
+    constexpr float kRangeMax = 3.0f;
+    CVar* s_planeRange = nullptr;
+    CVar* s_waterLog = nullptr;
+    // HD L19: read-only journal Logs\\hd-eau.txt (hdCataWaterLog 1): the water drawn near the camera and why it took
+    // the reflection or not. It changes nothing on screen.
+    struct LogEntry { float x, y, cz, low, high; int haveRange, mesh, oldMirror, mirrored, sky; uint32_t type; };
+    std::vector<LogEntry> s_logEntries;
+    float s_logCamera[3] = {};
+    uint32_t s_logLast = 0;
+    int s_logLines = 0;
     constexpr uint32_t kVertexRows = 53;
     constexpr uint32_t kPixelRows = 32;
     constexpr uint32_t kPixelLowRows = 13;    // the translated pixel modules read c0..c12 from the pixel slice
@@ -525,6 +540,35 @@ void HD::CataWaterBeginLiquidPass() {
     if (!s_info) {
         s_info = CVar::Register("hdCataWaterInfo", "HD: hdCataWater status (read only)", 0, "off", nullptr, CATEGORY_GRAPHICS, false, nullptr, false); if (s_info) s_info->m_flags &= ~0x1u; /* status only: not archived to Config.wtf */
     }
+    if (!s_planeRange) {   // HD L19
+        s_planeRange = CVar::Register("hdCataWaterPlaneRange", "HD: 2 = water joined to the reflected water takes the reflection, 1 = only batches touching its height, 0 = old test", 1, "2", nullptr, CATEGORY_GRAPHICS, false, nullptr, false);
+        s_waterLog = CVar::Register("hdCataWaterLog", "HD: water journal Logs\\hd-eau.txt, 1 on / 0 off", 1, "0", nullptr, CATEGORY_GRAPHICS, false, nullptr, false);
+        {static bool hdDef1Once=false;if(!hdDef1Once){hdDef1Once=true;if(s_waterLog&&s_waterLog->m_intValue!=0)s_waterLog->InternalSet("0",true,false,false,false);}} // HD DEF1: diagnostic journal off at every start (a test never leaves it on)
+    }
+    {   // HD L19: last frame's water, once a second, while hdCataWaterLog is 1
+        const uint32_t now = OsGetAsyncTimeMs();
+        if (s_waterLog && s_waterLog->m_intValue && s_logLines < 6000 && now - s_logLast >= 1000) {
+            s_logLast = now;
+            if (std::FILE* f = std::fopen("Logs\\hd-eau.txt", "a")) {
+                std::fprintf(f, "--- camera %.1f %.1f %.1f | plane %s %.2f | mirror %d | regle plage %d | %u eaux a moins de 120 m\n", s_logCamera[0], s_logCamera[1], s_logCamera[2],
+                             g_gxCataPlane.m_valid ? "a" : "aucun, dernier", g_gxCataPlane.m_height, g_gxCataWater.m_mirror, s_planeRange ? s_planeRange->m_intValue : -1,
+                             static_cast<unsigned>(s_logEntries.size()));
+                s_logLines++;
+                for (const LogEntry& e : s_logEntries) {
+                    if (s_logLines >= 6000) break;
+                    std::fprintf(f, "  centre %.1f %.1f | type %u %s | centre z %.2f | eau %s%.2f..%.2f | ancien test %s | rendu %s\n", e.x, e.y, e.type,
+                                 e.mesh ? "objet" : "chunk", e.cz, e.haveRange ? "" : "(inconnue) ", e.low, e.high,
+                                 e.oldMirror ? "reflet" : "pas de reflet", e.mirrored ? "REFLET" : e.sky ? "CIEL" : "SANS");
+                    s_logLines++;
+                }
+                std::fclose(f);
+            }
+        }
+        s_logEntries.clear();
+        s_logCamera[0] = CWorldScene::s_activeWorldView.x;
+        s_logCamera[1] = CWorldScene::s_activeWorldView.y;
+        s_logCamera[2] = CWorldScene::s_activeWorldView.z;
+    }
     g_gxCataWater.m_ready = 0;
     g_gxCataWater.m_mirror = 0;
     g_gxCataWater.m_sky = 0;
@@ -576,7 +620,18 @@ bool HD::CataWaterRender(Liquid::IEnvironment* environment, Liquid::IGeomFactory
     CAaBox meshBox;
     const bool mesh = HD::CataMirrorMeshWaterBox(geomFactory, *transform, meshBox);
     const float height = mesh ? (meshBox.b.z + meshBox.t.z) * 0.5f : bounds->c.z;
-    const bool mirrored = !s_submerged && g_gxCataWater.m_mirror && g_gxCataPlane.m_valid && fabsf(height - g_gxCataPlane.m_height) < kPlaneMatch;
+    const bool oldMirror = !s_submerged && g_gxCataWater.m_mirror && g_gxCataPlane.m_valid && fabsf(height - g_gxCataPlane.m_height) < kPlaneMatch;
+    // HD L19: a chunk batch whose water reaches the plane takes the reflection too (see kRangeMax).
+    float rangeLow = height, rangeHigh = height;
+    const bool haveRange = !mesh && HD::CataMirrorInstanceRange(geomFactory, rangeLow, rangeHigh);
+    const int rule = s_planeRange ? s_planeRange->m_intValue : 0;
+    const bool canMirror = !oldMirror && haveRange && !s_submerged && g_gxCataWater.m_mirror && g_gxCataPlane.m_valid;
+    // 1 (L19): the batch's own water reaches the plane. 2 (L19b): the batch is joined to the plane's water by its
+    // neighbours (HdCataMirror.cpp, CataMirrorInChain): the whole stream out of the lake, no seam half way up.
+    const bool rangeMirror = canMirror && ((rule == 1 && rangeHigh - rangeLow <= kRangeMax &&
+                             g_gxCataPlane.m_height >= rangeLow - kPlaneMatch && g_gxCataPlane.m_height <= rangeHigh + kPlaneMatch) ||
+                             (rule >= 2 && HD::CataMirrorInChain(geomFactory)));
+    const bool mirrored = oldMirror || rangeMirror;
 
     // Constants: what Cata's SetupRender, SetupLighting and SetInstanceTransform put in s_vsConsts / s_psConsts.
     C44Matrix view;
@@ -639,6 +694,14 @@ bool HD::CataWaterRender(Liquid::IEnvironment* environment, Liquid::IGeomFactory
     g_theGxDevicePtr->RsSet(GxRs_Texture0, sceneColor);
     // Cata (CMaterialWater::SetupRender): s1 the mirror for the water it was drawn for, else the sky's reflection.
     const bool sky = !s_submerged && !mirrored && g_gxCataWater.m_sky && s_pixelNone;
+    if (s_waterLog && s_waterLog->m_intValue && s_logEntries.size() < 64) {   // HD L19: journal only
+        const float dx = bounds->c.x - s_logCamera[0], dy = bounds->c.y - s_logCamera[1];
+        if (dx * dx + dy * dy < 120.0f * 120.0f) {
+            LogEntry e{bounds->c.x, bounds->c.y, bounds->c.z, mesh ? meshBox.b.z : rangeLow, mesh ? meshBox.t.z : rangeHigh, haveRange || mesh ? 1 : 0,
+                       mesh ? 1 : 0, oldMirror ? 1 : 0, mirrored ? 1 : 0, sky ? 1 : 0, liquidType};
+            s_logEntries.push_back(e);
+        }
+    }
     g_theGxDevicePtr->RsSet(GxRs_Texture1, static_cast<CGxTex*>(sky ? g_gxCataWater.m_proxySky : g_gxCataWater.m_proxy[1]));
     g_theGxDevicePtr->RsSet(GxRs_Texture2, ramp);
     // HD: Cata's blurred back buffer (the device's KawaseBlur, CataSceneCapture.cpp; the sharp copy without it). The

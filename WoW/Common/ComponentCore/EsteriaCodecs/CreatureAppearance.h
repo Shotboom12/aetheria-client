@@ -329,15 +329,28 @@ namespace CreatureAppearance
     }};
     inline constexpr std::array<char const*, 8> VenthyrFemaleLabels = {{"Skin / Body Palette","Accessory Palette","Hair Color","Body / Outfit Style","Hair Style","Earrings","Collar / Cape","Headwear"}};
 
+    // Catalog selectors cover only these fields. Other legacy appearance bytes
+    // remain accepted to avoid rejecting existing character appearances.
+    inline constexpr std::array<Option, 5> VorkaiOptions = {{
+        {0, 8, 1}, {1, 3, 1}, {2, 3, 1}, {3, 256, 1}, {4, 256, 1},
+    }};
+    inline constexpr std::array<Option, 5> HozenOptions = {{
+        {0, 18, 1}, {1, 256, 1}, {2, 256, 1}, {3, 256, 1}, {4, 256, 1},
+    }};
+    inline constexpr std::array<Option, 3> VorkaiControls = {{{0, 8, 1}, {1, 3, 1}, {2, 3, 1}}};
+    inline constexpr std::array<char const*, 3> VorkaiLabels = {{"Skin Color", "Style 1", "Style 2"}};
+    inline constexpr std::array<Option, 1> HozenControls = {{{0, 18, 1}}};
+    inline constexpr std::array<char const*, 1> HozenLabels = {{"Skin Color"}};
+
     constexpr bool Uses(unsigned race)
     {
-        return race == 72 || race == 69 || race == 70 || race == 30 || (((race >= 54 && race <= 61) || race == 62) || race == 63) || race == 64;
+        return race == 110 || race == 112 || race == 72 || race == 69 || race == 70 || race == 30 || (((race >= 54 && race <= 61) || race == 62) || race == 63) || race == 64;
     }
 
     constexpr bool GenderAllowed(unsigned race, unsigned gender)
     {
         return Uses(race) && (gender == 0
-            || ((race == 72 || race == 60 || race == 61 || race == 54 || race == 56 || race == 57 || race == 62) && gender == 1));
+            || ((race == 110 || race == 112 || race == 72 || race == 60 || race == 61 || race == 54 || race == 56 || race == 57 || race == 62) && gender == 1));
     }
 
     constexpr bool UsesPlayerVrykul(unsigned race, unsigned gender)
@@ -349,6 +362,10 @@ namespace CreatureAppearance
     {
         switch (race)
         {
+            case 110:
+                return VorkaiOptions;
+            case 112:
+                return HozenOptions;
             case 72:
                 return gender ? Drakkin_AllianceFemale : Drakkin_AllianceMale;
             case 69:

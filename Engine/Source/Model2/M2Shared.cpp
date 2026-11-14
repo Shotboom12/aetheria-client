@@ -1017,6 +1017,20 @@ void CM2Shared::ConvertTextureValuesToCombos() {
         this->m_fileSize = size + comboBytes + transformBytes;
         uint8_t* tail = reinterpret_cast<uint8_t*>(data) + size;
 
+        // M2Array offsets are relative to the array's own address, so moving the data block
+        // invalidates the separately allocated compacted bone-combo array (M2CompactSkinPalette).
+        // Re-allocate it near the new block and re-point the array.
+        if (this->m_esteriaBoneCombos) {
+            const uint32_t comboCount = data->m_boneCombos.m_count;
+            uint16_t* moved = static_cast<uint16_t*>(OsAllocNear(data, comboCount * sizeof(uint16_t)));
+            if (moved) {
+                memcpy(moved, this->m_esteriaBoneCombos, comboCount * sizeof(uint16_t));
+                OsFreeNear(this->m_esteriaBoneCombos);
+                this->m_esteriaBoneCombos = moved;
+                data->m_boneCombos.Set(moved);
+            }
+        }
+
         if (comboBytes) {
             data->m_textureCombos.Set(reinterpret_cast<uint16_t*>(tail));
             tail += comboBytes;

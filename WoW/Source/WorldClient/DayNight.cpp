@@ -2838,7 +2838,7 @@ void DayNight::SetColors() {
     }
 
     info.m_curve0 = DayNight::InterpTable(s_curveTable0, 4, info.m_dayProgression);
-    HD::ExtraLamps::SetNight(info.m_curve0); // HD: added lamps lit at night only
+    HD::ExtraLamps::SetNight(HD::ExtraLamps::NightAtDay(info.m_dayProgression)); // HD: lamps lit at night only; HD 2026-11-05 lot J2: by the clock, 21:30-22:00 (was m_curve0, 20:30-21:30)
     info.m_curve1 = DayNight::InterpTable(s_curveTable1, 2, info.m_dayProgression);
 }
 

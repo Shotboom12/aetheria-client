@@ -88,6 +88,7 @@ class CShadowCache {
     static C3Vector BandSunDirection(int32_t band);
     // HD: hdShadowTexelSnap, band centres aligned to the shadow map's texel grid in light space.
     static void ConfigureTexelSnap(bool enabled);
+    static void ConfigureFarEvery(int32_t every); // HD 2026-11-04 lot S3: hdShadowFarEvery
     // HD diagnostic: where band's centre falls inside a texel (0 = on the grid), u/v in texels.
     static void BandTexelPhase(int32_t band, float* u, float* v);
     static void ClearBandTextures();
@@ -120,6 +121,12 @@ class CShadowCache {
 };
 
 // HD diagnostic (temporary): CShadowQuery::Update frames since the last hdSunDiag line
-namespace HDShadowDiag { inline int cullOff = 0, cullOn = 0, inWmo = 0; inline int calls = 0; inline int groups[8]{}, m2[8]{}; inline int tq[3][6]{}; inline float glareMin = 1e30f, glareMax = 0.0f, glareUsed = 0.0f; }
+namespace HDShadowDiag { inline int cullOff = 0, cullOn = 0, inWmo = 0; inline int calls = 0; inline int groups[8]{}, m2[8]{}; inline int tq[3][6]{}; inline float glareMin = 1e30f, glareMax = 0.0f, glareUsed = 0.0f;
+    // HD 2026-11-04 lot S1: timing hooks set by CShadowQuery::Update (hdCataRenderPerf). Null = nothing timed.
+    // Phase 0 dynamic part, 1 band gather + query, 2..4 render of band 0..2. Timing only: no effect on the image.
+    inline uint64_t (*perfBegin)() = nullptr; inline void (*perfEnd)(int phase, uint64_t start) = nullptr;
+    inline uint64_t PerfBegin() { return perfBegin ? perfBegin() : 0; }
+    inline void PerfEnd(int phase, uint64_t start) { if (start && perfEnd) perfEnd(phase, start); }
+}
 
 #endif

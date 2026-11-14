@@ -222,6 +222,10 @@ float LowSunWeight(float sunElevation);
 float NightWeight(float sunElevation);
 float LampNightWeight(float sunElevation);
 float LampDayShare(const Config& cfg, float sunElevation);
+// HD 2026-11-05 lot J2: the lamps follow the clock, not the sun (the HD sun only sets at the 22:10 sun/moon
+// handover): 1 until 6:00, off at 7:00, starting at 21:30, full at 22:00 (same hours as HD::ExtraLamps::NightAtDay).
+float LampHourWeight(float dayFraction);
+float LampDayShareAt(const Config& cfg, float dayFraction);
 float LampFogDensityGain(float nearGroundDensity);
 float LampNearCameraShare(float cameraYards);
 void SceneLight(const FrameInputs& in, float* light);

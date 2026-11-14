@@ -26,15 +26,17 @@ void Publish(){const auto&a=suite.Available();StatusValue("hdLvReady",a.backend?
  static double lastLog=-100;static int lines=0;static unsigned lastMeasured=0;
  const double now=std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
  const bool active=suite.SpellLightCount()>0||s.clusters>0||s.cells>0;
- if(Value("hdLvSpells",0)!=0&&lines<4000&&(now-lastLog>(active?0.2:5.0))){
+ // REL1 (2026-11-06): journal off by default for players; /console hdLvSpellLog 1 turns it on.
+ static CVar*spellLog=Register("hdLvSpellLog","Lumen: spell light journals Logs\\lumen-sorts.txt and lumen-projectiles.txt, 1 on / 0 off (default 0)","0");(void)spellLog;
+ if(Value("hdLvSpellLog",0)!=0&&Value("hdLvSpells",0)!=0&&lines<4000&&(now-lastLog>(active?0.2:5.0))){
   if(std::FILE*f=std::fopen("Logs\\lumen-sorts.txt","a")){
    std::fprintf(f,"t %.1f etat \"%s\" mesures %u (+%u) sautees %u lumieres %zu groupes %d cellules %d sans_couleur %d flammes %d pluie %d sprites %d seuil %.2f fond %.2f anneau %d\n",now,suite.Status(),suite.SpellMeasurements(),suite.SpellMeasurements()-lastMeasured,suite.SpellSkipped(),suite.SpellLightCount(),s.clusters,s.cells,s.colourless,s.suppressedCells,s.fallingDropped,s.sprites,s.least,s.background,s.ringCells);
    for(const auto&e:suite.SpellLamps())std::fprintf(f,"   sort pos %.2f %.2f %.2f couleur %.2f %.2f %.2f intensite %.2f portee %.1f\n",e.position[0],e.position[1],e.position[2],e.colour[0],e.colour[1],e.colour[2],e.intensity,e.surfaceReach);
    std::fclose(f);++lines;lastLog=now;lastMeasured=suite.SpellMeasurements();}}
  // HD L17: read-only fog journal, Logs\\lumen-brume.txt, once a second while hdLvFog is on (hdLvFogLog 0 stops it).
  // It changes nothing on screen: it writes what the fog received (For Ever layers or the game's own fog) and the sun light it ends with.
- {static double lastFog=-100;static int fogLines=0;static CVar*fogLog=Register("hdLvFogLog","Lumen: fog journal Logs\\lumen-brume.txt, 1 on / 0 off","1");(void)fogLog;
-  if(Value("hdLvFog",0)!=0&&Value("hdLvFogLog",1)!=0&&fogLines<6000&&now-lastFog>=1.0){
+ {static double lastFog=-100;static int fogLines=0;static CVar*fogLog=Register("hdLvFogLog","Lumen: fog journal Logs\\lumen-brume.txt, 1 on / 0 off (default 0)","0");(void)fogLog;{static bool hdDef1Once=false;if(!hdDef1Once){hdDef1Once=true;if(fogLog&&fogLog->m_intValue!=0)fogLog->InternalSet("0",true,false,false,false);}} // HD DEF1: diagnostic journal off at every start (a test never leaves it on)
+  if(Value("hdLvFog",0)!=0&&Value("hdLvFogLog",0)!=0&&fogLines<6000&&now-lastFog>=1.0){
    if(std::FILE*f=std::fopen("Logs\\lumen-brume.txt","a")){
     const auto&n=suite.NativeUsed();const auto&in=suite.FrameUsed();const auto&p=suite.FogUsed();const auto&cfg=suite.ConfigUsed();
     auto lum=[](const float*c){return .2126f*c[0]+.7152f*c[1]+.0722f*c[2];};
@@ -52,10 +54,28 @@ void Publish(){const auto&a=suite.Available();StatusValue("hdLvReady",a.backend?
      std::fprintf(f,"   final couche %d debut %.0f densite %.6f g %.2f soleil %.4f %.4f %.4f ambiant %.4f %.4f %.4f\n",i,l.start,l.density,l.g,l.diffuse[0],l.diffuse[1],l.diffuse[2],l.emissive[0],l.emissive[1],l.emissive[2]);}
     std::fclose(f);++fogLines;lastFog=now;}}}
  }}
+// HD G1 2026-11-05: Logs\\lumen-gpu.txt every 2 s while hdLvGpuTimes is 1: GPU ms per frame of each Lumen kernel. Measure only, off at every start.
+void GpuTimesLog(){
+ static CVar*v=nullptr;if(!v){v=Register("hdLvGpuTimes","Lumen: 1 = GPU time of each fog/lamp kernel in Logs\\lumen-gpu.txt every 2 s (measure only, off at every start)","0");if(v&&v->m_intValue!=0)v->InternalSet("0",true,false,false,false);}
+ static const char*names[]={"LampSurfaces","LampVisibility","LampHalos","LampBlur","FogTemporal","EdgeOccluders","MemoryKeep","EffectGather","EffectReduce","Fog1Memory0","Fog1Memory1","Fog2Memory0","Fog2Memory1","Fog3Memory0","Fog3Memory1","MemorySeed","MemoryResolve","MemoryScatter","MemoryRealign","MemoryFill","DepthCopy","SceneComposite"};
+ static_assert(sizeof names/sizeof names[0]==size_t(Kernel::Count),"one name per kernel");
+ const bool on=v&&v->m_intValue!=0;static double last=-1;const double now=std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+ auto clear=[](){for(size_t i=0;i<size_t(Kernel::Count);++i){GpuTiming::ms[i]=0;GpuTiming::runs[i]=0;}GpuTiming::frames=GpuTiming::barriers=GpuTiming::dispatches=GpuTiming::surfacesSkipped=0;};
+ if(on!=GpuTiming::on){GpuTiming::on=on;clear();last=now;return;}
+ if(!on||now-last<2.0)return;last=now;
+ const double frames=double(GpuTiming::frames);
+ if(frames>0)if(std::FILE*f=std::fopen("Logs\\lumen-gpu.txt","a")){
+  double total=0;for(size_t i=0;i<size_t(Kernel::Count);++i)total+=GpuTiming::ms[i];
+  std::fprintf(f,"t %.1f images %.0f | passes %.3f ms/image | dispatchs %.1f/image | barrieres %.1f/image | lampes de surface sautees %.0f %%\n",now,frames,total/frames,GpuTiming::dispatches/frames,GpuTiming::barriers/frames,100.0*GpuTiming::surfacesSkipped/frames);
+  for(size_t i=0;i<size_t(Kernel::Count);++i)if(GpuTiming::runs[i])std::fprintf(f,"   %-15s %.3f ms/image  %.2f fois/image  %.3f ms/fois\n",names[i],GpuTiming::ms[i]/frames,GpuTiming::runs[i]/frames,GpuTiming::ms[i]/GpuTiming::runs[i]);
+  std::fclose(f);}
+ else if(!GpuTiming::available)if(std::FILE*f=std::fopen("Logs\\lumen-gpu.txt","a")){std::fprintf(f,"t %.1f pas d'horodatage GPU sur cette file\n",now);std::fclose(f);}
+ clear();
+}
 bool SafeSetting(const char*key){std::string n=key;std::transform(n.begin(),n.end(),n.begin(),[](unsigned char c){return char(std::tolower(c));});const char*exact[]={"quality","lampcount","temporal","lanternmode","lantern","shaftmemory","lightshafts","terrainshadows","hazesaturation"};for(auto*x:exact)if(n==x)return false;const char*prefix[]={"lamp","lantern","windowlight","effectlight","firestrength","shaft","moonshaft","lowsunshafts","farlights","density","fogceiling","haze","groundfog","farfog","aerialperspective","sunscatter","ambient","drift","bank","wind","stormwind","morningmist","mistheight","eveninghaze","weatherfog","weathershafts","cloudshadow","cloudcover","cloudsize","twilight","dusthaze","humidhaze","horizonfog",/* HD L18: L14/L15 settings were never registered */"viewlight","antiglare","scatternight","scatterdawn","scatterday","scatterdusk"};for(auto*x:prefix)if(n.compare(0,std::strlen(x),x)==0)return true;return false;}
 Controls Read(){Controls c;c.lamps=Value("hdLvLamps",0)!=0;c.fog=Value("hdLvFog",0)!=0;c.halos=Value("hdLvHalos",0)!=0;c.ambiance=Value("hdLvAmbiance",0)!=0;c.spells=Value("hdLvSpells",0)!=0;c.shafts=Value("hdLvShafts",0)!=0;c.memory=Value("hdLvMemory",0)!=0;c.terrain=Value("hdLvTerrain",0)!=0;c.quality=int(std::clamp(Value("hdLvQuality",2),1.f,3.f));c.lampCount=int(std::clamp(Value("hdLvLampCount",32),0.f,128.f));c.lantern=int(std::clamp(Value("hdLvLantern",0),0.f,2.f));c.tileLists=Value("hdLvTiles",1)!=0;c.blur=Value("hdLvBlur",1)!=0;c.lampGain=Value("hdLvLampGain",1);c.haloGain=Value("hdLvHaloGain",1);c.spellGain=Value("hdLvSpellGain",1);c.density=Value("hdLvDensity",1);c.shaftGain=Value("hdLvShaftGain",1);c.temporal=Value("hdLvTemporal",.85f);c.lanternColour={Value("hdLvLanternR",1),Value("hdLvLanternG",.55f),Value("hdLvLanternB",.2f)};c.Clamp();return c;}
 int __cdecl Wanted(void*){return frameWanted?1:0;}
-void __cdecl Run(void*,const WXL_VkStageContext*ctx){if(ctx){suite.Record(*ctx);Publish();}}
+void __cdecl Run(void*,const WXL_VkStageContext*ctx){if(ctx){suite.Record(*ctx);Publish();GpuTimesLog();}}
 void __cdecl Finish(void*,const WXL_VkStageContext*ctx){if(ctx){suite.AfterReferenceFog(*ctx);Publish();}}
 }
 static char failure[200]="";
