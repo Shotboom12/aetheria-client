@@ -39,6 +39,7 @@ void RegisterAetheriaRendererOptions() {
         {"hdAONormals", "0"},
         {"jigglePhysics", "0"}, {"jiggleButt", "1"}, {"jiggleStrength", "2"},
         {"capePhysics", "1"}, {"capeStrength", "2"},
+        {"hairPhysics", "1"}, {"hairStrength", "2"},
     };
     for (const auto& option : options) {
         RegisterGraphicsOptionCVar(option[0], option[1]);
@@ -559,6 +560,9 @@ p:Slider("jiggleStrength", "Jiggle strength", "How far it moves: 1 is a hint, 2 
 p:Header("Cloak physics")
 p:Check("capePhysics", "Enable cloak physics", "Cloaks sway behind the character and stream back while running. On by default; applies to your character and to other players nearby.")
 p:Slider("capeStrength", "Cloak strength", "How far the cloak swings: 1 is a hint, 2 is the default, 4 is exaggerated.", 1, 4, 1, function(v) return StrengthNames[math.floor(v + 0.5)] or "2 - Natural" end, 2)
+p:Header("Hair physics")
+p:Check("hairPhysics", "Enable hair physics", "Long hair, ponytails and braids swing when the character moves or turns. On by default; applies to your character and to other players nearby. Styles without long strands do not move.")
+p:Slider("hairStrength", "Hair strength", "How far the hair swings: 1 is a hint, 2 is the default, 4 is exaggerated.", 1, 4, 1, function(v) return StrengthNames[math.floor(v + 0.5)] or "2 - Natural" end, 2)
 p:Done()
 )lua";
 

@@ -208,6 +208,51 @@ static int32_t Script_CapeStatus(lua_State* L) {
     return 3;
 }
 
+// HairSet(name, value) -> value, for live tuning of HairPhysics.h. Names: enabled (0/1), zeta, gain, heightPower, maxBack, maxForward, maxSide,
+// windMix, windMax, worldMix, turnMix, hz0, hzStep, hzMin. HairSet() alone returns the enabled flag. (minDrop only matters when a model is first looked at.)
+// HairStatus() -> active, chainsFound, links in the first chain for the player model last driven.
+static int32_t Script_HairSet(lua_State* L) {
+    HairPhysics::Settings& cfg = HairPhysics::Config();
+    if (!lua_isstring(L, 1) || !lua_isnumber(L, 2)) {
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+
+    const char* name = lua_tolstring(L, 1, nullptr);
+    const float value = static_cast<float>(lua_tonumber(L, 2));
+    struct Entry { const char* name; float* target; };
+    const Entry entries[] = {
+        { "zeta", &cfg.zeta }, { "gain", &cfg.gain }, { "heightPower", &cfg.heightPower }, { "maxBack", &cfg.maxBack },
+        { "maxForward", &cfg.maxForward }, { "maxSide", &cfg.maxSide }, { "windMix", &cfg.windMix }, { "windMax", &cfg.windMax },
+        { "worldMix", &cfg.worldMix }, { "turnMix", &cfg.turnMix }, { "hz0", &cfg.hz0 }, { "hzStep", &cfg.hzStep }, { "hzMin", &cfg.hzMin },
+        { "minDrop", &cfg.minDrop }, { "maxForwardFront", &cfg.maxForwardFront }, { "frontMargin", &cfg.frontMargin },
+    };
+    if (!strcmp(name, "enabled")) {
+        cfg.enabled = value != 0.0f;
+        lua_pushnumber(L, cfg.enabled ? 1.0 : 0.0);
+        return 1;
+    }
+    for (const Entry& entry : entries) {
+        if (!strcmp(name, entry.name)) {
+            *entry.target = value;
+            lua_pushnumber(L, value);
+            return 1;
+        }
+    }
+    luaL_error(L, "Unknown hair setting %s", name);
+    return 0;
+}
+
+static int32_t Script_HairStatus(lua_State* L) {
+    CM2Model* model = BodyShape::Edited().model;
+    auto it = model ? BodyShape::HairStates().find(model) : BodyShape::HairStates().end();
+    const bool found = it != BodyShape::HairStates().end() && it->second.found;
+    lua_pushboolean(L, HairPhysics::Active());
+    lua_pushnumber(L, found ? static_cast<double>(it->second.chainCount) : 0.0);
+    lua_pushnumber(L, found ? static_cast<double>(it->second.linkCount[0]) : 0.0);
+    return 3;
+}
+
 static int32_t Script_ResetBodyShape(lua_State* L) {
     BodyShape::Reset();
     return 0;
@@ -352,7 +397,7 @@ static int32_t Script_BodyShapePasteCode(lua_State* L) {
     { "GetBodyShapeRange", &Script_GetBodyShapeRange }, \
     { "BodyShapeMeshStatus", &Script_BodyShapeMeshStatus }, \
     { "JiggleSet", &Script_JiggleSet }, \
-    { "JiggleStatus", &Script_JiggleStatus },     { "CapeSet", &Script_CapeSet },     { "CapeStatus", &Script_CapeStatus }, \
+    { "JiggleStatus", &Script_JiggleStatus },     { "CapeSet", &Script_CapeSet },     { "CapeStatus", &Script_CapeStatus },     { "HairSet", &Script_HairSet },     { "HairStatus", &Script_HairStatus }, \
     { "BodyShapeProbe", &Script_BodyShapeProbe }, \
     { "BodyShapeBoneInfo", &Script_BodyShapeBoneInfo }, \
     { "BodyShapeLog", &Script_BodyShapeLog }, \

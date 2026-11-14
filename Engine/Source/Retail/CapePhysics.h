@@ -363,8 +363,13 @@ inline void Update(CM2Model* model, State& s, bool run, const JigglePhysics::Mot
         }
     }
 
-    // A chain appended to the end of the bone list is a custom model's own; it gets customFlare, others get flare.
-    const float restFlare = (s.bone[0] + Links == s.boneCount ? cfg.customFlare : cfg.flare) * StrengthFlare(strength);
+    // A chain appended to the end of the bone list is a custom model's own; it gets customFlare, others get flare. "Appended" = five consecutive
+    // bones at the end of the list, allowing up to two later bones (Sylvari female v6 appends its two breast bones after the cape chain).
+    bool appended = s.bone[0] + Links <= s.boneCount && s.bone[0] + Links + 2 >= s.boneCount;
+    for (int k = 1; k < Links; ++k) {
+        appended = appended && s.bone[k] == s.bone[0] + static_cast<uint32_t>(k);
+    }
+    const float restFlare = (appended ? cfg.customFlare : cfg.flare) * StrengthFlare(strength);
     for (int k = 0; k < Links; ++k) {
         w[k][1] += restFlare * static_cast<float>(k + 1) / 15.0f; // +y turn moves the hem backward (-x); the weights sum to 1
         model->SetBoneProceduralTransformByIndex(s.bone[k], RotationMatrix(w[k]));

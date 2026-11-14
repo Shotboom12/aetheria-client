@@ -17,6 +17,7 @@
 #include "Engine/Source/Retail/BodyShapeWire.h"
 #include "Engine/Source/Retail/BodyShapeMesh.h"
 #include "Engine/Source/Retail/CapePhysics.h"
+#include "Engine/Source/Retail/HairPhysics.h"
 #include "Engine/Source/Retail/JigglePhysics.h"
 #include "Engine/Source/Tempest/C44Matrix.h"
 
@@ -215,9 +216,16 @@ inline std::map<CM2Model*, CapePhysics::State>& CapeStates() {
     return states;
 }
 
+// Hair spring state per model (HairPhysics.h), same lifetime as the cloak state.
+inline std::map<CM2Model*, HairPhysics::State>& HairStates() {
+    static std::map<CM2Model*, HairPhysics::State> states;
+    return states;
+}
+
 inline void Forget(CM2Model* model) {
     Appliers().erase(model);
     CapeStates().erase(model);
+    HairStates().erase(model);
     if (Edited().model == model) {
         Edited().model = nullptr;
     }

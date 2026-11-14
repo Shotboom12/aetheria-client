@@ -1752,6 +1752,8 @@ void CGUnit_C::PreAnimate(CGWorldFrame* frame) {
 
             CapePhysics::State& cape = BodyShape::CapeStates()[this->m_worldModel];
             CapePhysics::Update(this->m_worldModel, cape, capeRun, &motion, twistSet[0] ? &twistBase[0] : nullptr);
+            HairPhysics::State& hair = BodyShape::HairStates()[this->m_worldModel];
+            HairPhysics::Update(this->m_worldModel, hair, capeRun, &motion);
         }
     }
 

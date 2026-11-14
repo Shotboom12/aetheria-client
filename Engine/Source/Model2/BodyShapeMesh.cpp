@@ -55,6 +55,12 @@ const ReplacerProfile ReplacerProfiles[] = {
         {{0.057434268f,0.000543145f,-0.321234164f},{0.978722434f,0.978722434f,1.458885308f}}, {{0.045051533f,0.000000000f,0.076243186f},{1.150033811f,1.150033811f,1.154680353f}},
         { -1.266928506f, -1.102837217f, -0.198629746f }, { 0.521424603f, 1.102837336f, 2.764995527f },
         nullptr, 0, "replacer/lightforged", true,1.399f,0.941f,0.065f,0.035f }, 0.8f },
+    // Sylvari female (custom model faunfemale, Draenei rig): the retail Draenei body with Rwise's changes, so the Draenei regions apply. Bounds are those of
+    // Sylvari female v6 (body + boots + cloak shells); a model rebuilt with different geometry needs these bounds updated.
+    { { "replacer/sylvari",
+        {{0.057434268f,0.000543145f,-0.321234164f},{0.978722434f,0.978722434f,1.458885308f}}, {{0.045051533f,0.000000000f,0.076243186f},{1.150033811f,1.150033811f,1.154680353f}},
+        { -0.881398809f, -1.113049459f, -0.198696423f }, { 0.535510969f, 1.113049579f, 2.805639458f },
+        nullptr, 0, "replacer/sylvari", true,1.399f,0.941f,0.065f,0.035f }, 0.8f },
     { { "replacer/harronir",
         {{-0.014177049f,0.000571621f,0.164680337f},{1.030137054f,1.030137054f,1.093529139f}}, {{-0.034358775f,0.000000000f,0.001955757f},{1.134493885f,1.134493885f,1.190388356f}},
         { -0.561357987f, -1.140408826f, -0.210096197f }, { 0.460832489f, 1.140408826f, 2.454424810f },

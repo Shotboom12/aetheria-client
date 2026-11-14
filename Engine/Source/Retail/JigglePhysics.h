@@ -208,13 +208,13 @@ struct State {
 
 constexpr int32_t PelvisKey = 51;
 
-// Breast bones of the Retail female skeletons: (23, 26) or (28, 32). Both must be childless siblings, mirrored
+// Breast bones of the Retail female skeletons: (23, 26) or (28, 32), or (190, 191) on the Sylvari female (appended by her v6 model). Both must be childless siblings, mirrored
 // left/right, high on the body. Checked against the Human, Blood Elf, Night Elf, Void Elf, Nightborne, Draenei and
 // Lightforged skeletons.
 inline void Detect(CM2Model* model, State& s) {
     s.searched = true;
     const uint32_t count = model->GetBoneCount();
-    static const uint32_t pairs[2][2] = { { 23, 26 }, { 28, 32 } };
+    static const uint32_t pairs[3][2] = { { 23, 26 }, { 28, 32 }, { 190, 191 } };
 
     std::vector<char> hasChild(count, 0);
     for (uint32_t i = 0; i < count; ++i) {
