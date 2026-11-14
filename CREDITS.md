@@ -12,6 +12,7 @@ Aetheria is built on the work of many people. Aetheria collects and integrates o
 | Esteria races/framework | **Kalibros** |
 | Arakkoa | **Yami**, made for **CoA** |
 | Jinyu | **Uncle Snowzo** |
+| Hozen (race 112) and Sylvari (race 110) | **Ilusixn**, author of Custom-Race-3.3.5a (files given to the Aetheria owner, used with his permission) |
 | Sylvari (face textures, not installed yet) | **FrolickingFauns** |
 | Gnoll, Vrykul | **Kalibros** |
 | Saberon, Sethrak | **Kalibros** |
