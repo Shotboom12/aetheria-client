@@ -74,7 +74,11 @@ static int32_t Script_SetCharacterSelectFacing(lua_State* L) {
         return 0;
     }
 
-    CharacterSelectionDisplay::SetCharacterFacing(lua_tonumber(L, 1) * 0.017453292f);
+    const float angle = static_cast<float>(lua_tonumber(L, 1)) * 0.017453292f;
+    if (CCharacterSelection::InnCastUserFacing(angle)) {     // v49: inn cast on: turn in place, do not move to the stage slot
+        return 1;
+    }
+    CharacterSelectionDisplay::SetCharacterFacing(angle);
     return 1;
 }
 

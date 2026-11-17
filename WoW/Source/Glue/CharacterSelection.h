@@ -46,6 +46,7 @@ class CCharacterSelection {
     static void InnCastShow();
     static void InnCastTick();
     static void InnCastReset(bool detachExtras = false);
+    static bool InnCastUserFacing(float angle);     // v49: mouse rotation of the selected character while the inn cast is on (turns in place instead of moving to the stage slot)
 };
 
 extern const int32_t g_scriptSexIndex[3];

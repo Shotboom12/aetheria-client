@@ -1,13 +1,16 @@
 diff --git a/WoW/Source/Glue/CharacterSelection.cpp b/WoW/Source/Glue/CharacterSelection.cpp
-index 9e90b67..4bdabac 100644
+index 9e90b67..78fd63e 100644
 --- a/WoW/Source/Glue/CharacterSelection.cpp
 +++ b/WoW/Source/Glue/CharacterSelection.cpp
-@@ -1,12 +1,26 @@
+@@ -1,12 +1,29 @@
 +#include <cmath>
 +#include <algorithm>
 +#include <cstdlib>
 +#include <cstdio>
 +#include <cctype>
++#include <atomic>
++#include <chrono>
++#include <thread>
 +#include <cstring>
 +#include <fstream>
 +#include <map>
@@ -29,7 +32,7 @@ index 9e90b67..4bdabac 100644
  #include "Engine/Source/ConsoleBase/ConsoleVar.h"
  #include "Engine/Source/Event/Event.h"
  #include "Engine/Source/FFX/FFX.h"
-@@ -41,6 +55,11 @@
+@@ -41,6 +58,11 @@
  #include "WoW/Source/WorldClient/DayNight__DNInfo.h"
  #include "WoW/Source/WorldClient/World.h"
  #include "WoW/Source/WowSvcs/WowSvcsClient/ClientServices.h"
@@ -41,7 +44,7 @@ index 9e90b67..4bdabac 100644
  
  // STATIC: 0x009F3CD0
  const int32_t g_scriptSexIndex[3] = { 2, 3, 1 };
-@@ -78,6 +97,7 @@ void CCharacterSelection::Initialize() {
+@@ -78,6 +100,7 @@ void CCharacterSelection::Initialize() {
  // VERIFY: cead22db auto
  // OFFSET: 0x004E38F0
  void CCharacterSelection::Shutdown() {
@@ -49,7 +52,7 @@ index 9e90b67..4bdabac 100644
      LoadingScreenMiniDisable();
      CharacterSelectionDisplay::ClearFormMirror();
  
-@@ -323,10 +343,1426 @@ CharacterSelectionDisplay* CCharacterSelection::GetCharacterDisplay(uint32_t ind
+@@ -323,10 +346,1479 @@ CharacterSelectionDisplay* CCharacterSelection::GetCharacterDisplay(uint32_t ind
      return nullptr;
  }
  
@@ -65,6 +68,34 @@ index 9e90b67..4bdabac 100644
 +// Not done in stage 0: clicking characters in the 3D view, wandering, the inn art, pets of characters built as extras.
 +// ---------------------------------------------------------------------------------------------------------------------
 +namespace {
++
++// v49: hang watchdog (inn cast only). The select screen ticks InnCastTick every frame (the beat). If the beat stops for 6 seconds while the screen is open, a helper
++// thread appends one line to InnWatchdog.log with the phase the main thread was last in, so a silent freeze can be located (our code or the engine/renderer after it).
++std::atomic<uint32_t> s_innBeat{0};
++std::atomic<const char*> s_innPhase{"start"};
++std::atomic<bool> s_innDogActive{false};
++std::atomic<bool> s_innDogStarted{false};
++inline void InnPhase(const char* phase) { s_innPhase.store(phase, std::memory_order_relaxed); }
++void InnWatchdogStart() {
++    if (s_innDogStarted.exchange(true)) return;
++    std::thread([]() {
++        uint32_t last = s_innBeat.load();
++        uint32_t stuckMs = 0;
++        for (;;) {
++            std::this_thread::sleep_for(std::chrono::milliseconds(500));
++            const uint32_t beat = s_innBeat.load();
++            if (!s_innDogActive.load() || beat != last) { last = beat; stuckMs = 0; continue; }
++            stuckMs += 500;
++            if (stuckMs == 6000 || (stuckMs > 6000 && stuckMs % 30000 == 0)) {
++                FILE* file = std::fopen("InnWatchdog.log", "ab");
++                if (file) {
++                    std::fprintf(file, "main thread stalled %u ms, last phase: %s (beat %u)\n", stuckMs, s_innPhase.load(), beat);
++                    std::fclose(file);
++                }
++            }
++        }
++    }).detach();
++}
 +// Settings come from InnCast.cfg in the game folder (lines "NAME=value", same names as the environment variables, # comments), re-read
 +// within half a second of the file changing, so edits apply on the next frame without restarting anything. The environment variable
 +// of the same name is the fallback.
@@ -222,7 +253,9 @@ index 9e90b67..4bdabac 100644
 +        fadeLast = fadeNow;
 +        InnWmo::UpdateDoodadFade(fade, cameraPos, fadeDt);
 +    }
++    InnPhase("inn wmo draw");
 +    InnWmo::Draw(cfg, placement, cameraPos, fade);
++    InnPhase("after the inn wmo draw");
 +
 +    // Step 3.2b: walking-area debug markers (InnWalk.cfg + WOW_INN_WALK_DEBUG=1). Default marker model = the inn's own green bottle.
 +    {
@@ -338,6 +371,7 @@ index 9e90b67..4bdabac 100644
 +bool s_innDropCache[kInnMax] = {};      // the model was freed: forget the cached animation masks
 +uint32_t s_innLastLeft[kInnMax] = {};   // when it last left (0 = never): the longest absent comes in next
 +uint32_t s_innLeaveStart[kInnMax] = {};
++uint32_t s_innSince[kInnMax] = {};       // v48: when a late or rotating-in character arrived (0 = none): it may not be picked to leave before WOW_INN_STAY_MIN seconds have passed
 +bool s_innPlanned = false;
 +uint32_t s_innNextRotate = 0;
 +uint32_t s_innComeStart = 0;
@@ -373,7 +407,7 @@ index 9e90b67..4bdabac 100644
 +    s_innPlanned = true;
 +    for (int32_t k = 0; k < kInnMax; k++) {
 +        s_innWanted[k] = s_innInitial[k] = s_innStay[k] = s_innLeaving[k] = s_innComing[k] = s_innPresent[k] = false;
-+        s_innLastLeft[k] = 0; s_innLeaveStart[k] = 0;
++        s_innLastLeft[k] = 0; s_innLeaveStart[k] = 0; s_innSince[k] = 0;
 +    }
 +    const int32_t capacity = std::min(listed, InnCastLimit());
 +    InnCastComputeStay(listed);
@@ -400,6 +434,7 @@ index 9e90b67..4bdabac 100644
 +    s_innLeaving[i] = false; s_innArrive[i] = false; s_innPresent[i] = false; s_innComing[i] = false;
 +    s_innDropCache[i] = true;
 +    s_innLastLeft[i] = now ? now : 1;
++    s_innSince[i] = 0;
 +    sExtensionMgr->Log("InnCast left: index=%d walked out through a door", i);
 +}
 +void InnCastAnimInventory() {
@@ -951,10 +986,12 @@ index 9e90b67..4bdabac 100644
 +        else if (!s_innWanted[i] && !s_innTrickleFailed[i]) { s_innWanted[i] = true; s_innInitial[i] = false; wantedCount++; }
 +    }
 +
++    const uint32_t stayMinMs = static_cast<uint32_t>(std::max(0.0f, InnCastEnvFloat("WOW_INN_STAY_MIN", 60.0f)) * 1000.0f);
 +    auto pickLeaver = [&]() -> int32_t {
 +        int32_t pool[kInnMax]; int32_t n = 0;
 +        for (int32_t i = 0; i < listed; i++) {
-+            if (s_innWanted[i] && !s_innStay[i] && i != sel && !s_innLeaving[i] && s_innPresent[i] && !s_innArrive[i] && !s_innComing[i]) pool[n++] = i;
++            if (s_innWanted[i] && !s_innStay[i] && i != sel && !s_innLeaving[i] && s_innPresent[i] && !s_innArrive[i] && !s_innComing[i]
++                && !(s_innSince[i] && now - s_innSince[i] < stayMinMs)) pool[n++] = i;     // v48: new arrivals stay at least WOW_INN_STAY_MIN seconds
 +        }
 +        return n > 0 ? pool[InnWalkers::Rand(ws) % static_cast<uint32_t>(n)] : -1;
 +    };
@@ -1074,7 +1111,7 @@ index 9e90b67..4bdabac 100644
 +    InnWalkers::Update(dtMs * 0.001f, walkCfg, graph, in, (CCharacterSelection::s_selectionIndex == s_innReleasedSel) ? -1 : static_cast<int32_t>(CCharacterSelection::s_selectionIndex), camX, camY, out);
 +    for (int32_t i = 0; i < shown && i < static_cast<int32_t>(InnWalkers::S().walkers.size()); i++) {
 +        const InnWalkers::Walker& placedWalker = InnWalkers::S().walkers[i];
-+        s_innPresent[i] = placedWalker.placed;
++        { const bool wasPresent = s_innPresent[i]; s_innPresent[i] = placedWalker.placed; if (!wasPresent && placedWalker.placed && !s_innInitial[i]) s_innSince[i] = now ? now : 1; }     // v48: arrival time of late characters
 +        if (s_innArrive[i] && placedWalker.placed) s_innArrive[i] = false;     // placed at its entrance (or anywhere): the flag is done
 +        if (s_innComing[i] && placedWalker.placed && !placedWalker.coming) s_innComing[i] = false;     // arrived: the camera may zoom and the greeting plays
 +        if (i < static_cast<int32_t>(out.size()) && out[i].gone) InnCastRemove(i, now);
@@ -1105,7 +1142,7 @@ index 9e90b67..4bdabac 100644
 +        }
 +        const C3Vector at = C3Vector(o.x + sideX, o.y + sideY, o.z) * local;
 +        C44Matrix matrix;
-+        matrix.RotateAroundZ(o.heading + cfg.yaw);
++        matrix.RotateAroundZ(o.heading + cfg.yaw + (i == CCharacterSelection::s_selectionIndex ? CCharacterSelection::s_charFacing : 0.0f));     // v49: plus the mouse rotation
 +        matrix.Scale(InnCastScale(entry.m_characterInfo.m_raceID, entry.m_characterInfo.m_sexID));
 +        matrix.d0 = at.x; matrix.d1 = at.y; matrix.d2 = at.z;
 +        model->SetWorldTransform(matrix);
@@ -1123,7 +1160,7 @@ index 9e90b67..4bdabac 100644
 +                const float stageX = InnCastEnvFloat("WOW_INN_STAGE_X", 2.2f), stageY = InnCastEnvFloat("WOW_INN_STAGE_Y", -0.9f);
 +                const C3Vector at = C3Vector(stageX, stageY, graph.floorZ) * local;
 +                C44Matrix matrix;
-+                matrix.RotateAroundZ(std::atan2(camY - stageY, camX - stageX) + cfg.yaw);
++                matrix.RotateAroundZ(std::atan2(camY - stageY, camX - stageX) + cfg.yaw + CCharacterSelection::s_charFacing);     // v49: plus the mouse rotation
 +                matrix.Scale(InnCastScale(entry.m_characterInfo.m_raceID, entry.m_characterInfo.m_sexID));
 +                matrix.d0 = at.x; matrix.d1 = at.y; matrix.d2 = at.z;
 +                model->SetWorldTransform(matrix);
@@ -1319,7 +1356,7 @@ index 9e90b67..4bdabac 100644
 +        std::swap(s_innAnimLogged[a], s_innAnimLogged[b]); std::swap(s_innArrive[a], s_innArrive[b]); std::swap(s_innTrickleFailed[a], s_innTrickleFailed[b]);
 +        std::swap(s_innWanted[a], s_innWanted[b]); std::swap(s_innInitial[a], s_innInitial[b]); std::swap(s_innLeaving[a], s_innLeaving[b]);
 +        std::swap(s_innComing[a], s_innComing[b]); std::swap(s_innPresent[a], s_innPresent[b]); std::swap(s_innDropCache[a], s_innDropCache[b]);
-+        std::swap(s_innLastLeft[a], s_innLastLeft[b]); std::swap(s_innLeaveStart[a], s_innLeaveStart[b]);
++        std::swap(s_innLastLeft[a], s_innLastLeft[b]); std::swap(s_innLeaveStart[a], s_innLeaveStart[b]); std::swap(s_innSince[a], s_innSince[b]);
 +        s_innDropCache[a] = s_innDropCache[b] = true;
 +    }
 +    InnWalkers::SwapIndex(a, b);
@@ -1339,6 +1376,14 @@ index 9e90b67..4bdabac 100644
 +}
 +
 +// Position of list entry `index` in the cast (attachment space of the background model). False (and untouched) when the cast is off.
++// v49: the mouse rotation (right-drag) of the selected character. With the inn cast on the character is driven by its walker, so the old behaviour (put the model on its
++// line-up slot and turn it) made it jump to the stage. Now only the angle is kept (s_charFacing, reset to 0 at every selection) and it is added to the facing below.
++bool CCharacterSelection::InnCastUserFacing(float angle) {
++    if (InnCastShown() <= 0) return false;
++    CCharacterSelection::s_charFacing = angle;
++    return true;
++}
++
 +bool CCharacterSelection::InnCastSlot(uint32_t index, C3Vector& position) {
 +    const int32_t shown = std::min(InnCastShown(), InnCastLimit());
 +    if (shown <= 0) return false;
@@ -1394,12 +1439,22 @@ index 9e90b67..4bdabac 100644
 +    s_innLastTick = now;
 +    dtMs = std::clamp(dtMs, 0.0f, 100.0f);
 +
++    InnWatchdogStart();
++    s_innDogActive.store(true);
++    s_innBeat.fetch_add(1);
++    InnPhase("camera");
 +    InnCastCamera(dtMs);
++    InnPhase("rotate");
 +    InnCastRotate(now);
++    InnPhase("walkers");
 +    InnCastWalkers(dtMs);
++    InnPhase("trickle");
 +    InnCastTrickle(now);
++    InnPhase("emote");
 +    InnCastEmote(now);
++    InnPhase("anim inventory");
 +    InnCastAnimInventory();
++    InnPhase("after the inn tick (engine, renderer or driver)");
 +
 +    s_innStatFrames++;
 +    s_innStatWorst = std::max(s_innStatWorst, dtMs);
@@ -1433,6 +1488,7 @@ index 9e90b67..4bdabac 100644
 +
 +// Leaving the character select: give the frame its own camera back.
 +void CCharacterSelection::InnCastReset(bool detachExtras) {
++    s_innDogActive.store(false);
 +    // On shutdown the other characters are freed with the list: detach those placed by the cast first (the selected one is handled by Shutdown).
 +    if (detachExtras && InnCastShown() > 0) {
 +        for (int32_t i = 0; i < InnCastShown(); i++) {
@@ -1458,7 +1514,7 @@ index 9e90b67..4bdabac 100644
 +    s_innExplore = false;
 +    s_innRmbDown = false;
 +    s_innLastTrickle = 0;
-+    for (int32_t i = 0; i < kInnMax; i++) { s_innArrive[i] = false; s_innTrickleFailed[i] = false; s_innWanted[i] = s_innInitial[i] = s_innStay[i] = s_innLeaving[i] = s_innComing[i] = s_innPresent[i] = s_innDropCache[i] = false; s_innLastLeft[i] = 0; s_innLeaveStart[i] = 0; }
++    for (int32_t i = 0; i < kInnMax; i++) { s_innArrive[i] = false; s_innTrickleFailed[i] = false; s_innWanted[i] = s_innInitial[i] = s_innStay[i] = s_innLeaving[i] = s_innComing[i] = s_innPresent[i] = s_innDropCache[i] = false; s_innLastLeft[i] = 0; s_innLeaveStart[i] = 0; s_innSince[i] = 0; }
 +    s_innPlanned = false;
 +    s_innRotSeenSel = -2;
 +    s_innLastTick = 0;
@@ -1476,7 +1532,7 @@ index 9e90b67..4bdabac 100644
      if (CCharacterSelection::s_selectionIndex < 0 || CCharacterSelection::s_selectionIndex >= static_cast<int32_t>(CCharacterSelection::s_characterList.Count())) {
          CGlueLoading::Idle(nullptr);
          return 1;
-@@ -350,6 +1786,7 @@ int32_t CCharacterSelection::Idle(const void* data, void* param) {
+@@ -350,6 +1842,7 @@ int32_t CCharacterSelection::Idle(const void* data, void* param) {
  // VERIFY: f62a960c auto
  // OFFSET: 0x004E3120
  void CCharacterSelection::OnHide() {
@@ -1484,7 +1540,7 @@ index 9e90b67..4bdabac 100644
      EventUnregister(EVENT_ID_IDLE, &CCharacterSelection::Idle);
      LoadingScreenMiniDisable();
  }
-@@ -409,6 +1846,28 @@ void CCharacterSelection::SetBackgroundModel(const char* modelName) {
+@@ -409,6 +1902,31 @@ void CCharacterSelection::SetBackgroundModel(const char* modelName) {
          return;
      }
  
@@ -1503,9 +1559,12 @@ index 9e90b67..4bdabac 100644
 +        }
 +
 +        // WMO inn: keep one backdrop model for every character (its attachment point is where the cast stands).
++        // v49: the room and the room camera are tuned to the Orc backdrop (the one the game asks for first when the list is still empty). Pin that one (the native takes a full model path, not a race name)
++        // on every client instead of whatever the first listed character happens to use (another backdrop scales the room differently, so the
++        // characters ended up outside it). WOW_INN_CAST_BACKGROUND still overrides.
 +        if (!InnCastEnvString("WOW_INN_WMO").empty()) {
 +            static std::string pinned;
-+            if (pinned.empty()) pinned = modelName;
++            if (pinned.empty()) pinned = innBackground.empty() ? std::string(R"(Interface\Glues\Models\UI_Orc\UI_Orc.m2)") : std::string(modelName);
 +            modelName = pinned.c_str();
 +        }
 +    }
@@ -1513,7 +1572,7 @@ index 9e90b67..4bdabac 100644
      if (CCharacterSelection::m_modelFrame->m_model && !SStrCmpI(modelName, CCharacterSelection::m_modelFrame->m_model->m_shared->m_fileName, STORM_MAX_STR)) {
          return;
      }
-@@ -469,7 +1928,28 @@ void CCharacterSelection::DressComponent(const CHARACTER_INFO& info, CCharacterC
+@@ -469,7 +1987,28 @@ void CCharacterSelection::DressComponent(const CHARACTER_INFO& info, CCharacterC
  
          if (slot == INVSLOT_MAINHAND || slot == INVSLOT_OFFHAND || (slot == INVSLOT_RANGED && hunter)) {
              if (found) {
@@ -1543,7 +1602,7 @@ index 9e90b67..4bdabac 100644
  
                  if (slot == INVSLOT_RANGED) {
                      if (info.m_inventoryItemType[INVSLOT_RANGED] == INVTYPE_RANGED) {
-@@ -673,6 +2153,8 @@ void CCharacterSelection::ShowCharacter() {
+@@ -673,6 +2212,8 @@ void CCharacterSelection::ShowCharacter() {
          if (CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_petModel) {
              CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_petModel->AttachToParent(CCharacterSelection::m_modelFrame->m_model, 1, nullptr, 0);
          }
@@ -1552,7 +1611,7 @@ index 9e90b67..4bdabac 100644
      }
  
      CGlueLoading::StartLoad(CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component, newComponent);
-@@ -696,6 +2178,7 @@ void CCharacterSelection::UpdateCharacterList() {
+@@ -696,6 +2237,7 @@ void CCharacterSelection::UpdateCharacterList() {
      CCharacterSelection::s_raceRestrictions[9] = 0;
  
      ClientServices::Connection()->EnumerateCharacters(&CCharacterSelection::EnumerateCharactersCallback, nullptr);
@@ -1561,7 +1620,7 @@ index 9e90b67..4bdabac 100644
      // A character swap with nothing to enter: uncover the character select (ClientDestroyGame covered it).
      if (!CCharacterSelection::s_characterList.Count() && CCharacterSelection::s_autoEnterGuid) {
 diff --git a/WoW/Source/Glue/CharacterSelection.h b/WoW/Source/Glue/CharacterSelection.h
-index e088225..05d2a96 100644
+index e088225..9e414a9 100644
 --- a/WoW/Source/Glue/CharacterSelection.h
 +++ b/WoW/Source/Glue/CharacterSelection.h
 @@ -6,6 +6,7 @@
@@ -1572,7 +1631,7 @@ index e088225..05d2a96 100644
  
  class CHARACTER_INFO;
  class CM2Lighting;
-@@ -40,6 +41,11 @@ class CCharacterSelection {
+@@ -40,6 +41,12 @@ class CCharacterSelection {
      static void UpdateCharacterName(WOWGUID guid, const char* name);
      static void UpdateCharacterInfo(WOWGUID guid, const char* name, uint8_t sexID, uint8_t skinColorID, uint8_t faceID, uint8_t hairStyleID, uint8_t hairColorID, uint8_t facialHairStyleID, uint8_t raceID);
      static void UpdateCharacterNameDeclension(WOWGUID guid);
@@ -1581,6 +1640,7 @@ index e088225..05d2a96 100644
 +    static void InnCastShow();
 +    static void InnCastTick();
 +    static void InnCastReset(bool detachExtras = false);
++    static bool InnCastUserFacing(float angle);     // v49: mouse rotation of the selected character while the inn cast is on (turns in place instead of moving to the stage slot)
  };
  
  extern const int32_t g_scriptSexIndex[3];
@@ -1608,10 +1668,23 @@ index 85ef1c0..5b84b4e 100644
              RetailRacePreviewScale(display.m_characterInfo.m_raceID, display.m_characterInfo.m_sexID));
      }
 diff --git a/WoW/Source/Glue/CharacterSelection_Scripts.cpp b/WoW/Source/Glue/CharacterSelection_Scripts.cpp
-index 27e8bf1..25a3674 100644
+index 27e8bf1..8eca6f1 100644
 --- a/WoW/Source/Glue/CharacterSelection_Scripts.cpp
 +++ b/WoW/Source/Glue/CharacterSelection_Scripts.cpp
-@@ -401,8 +401,24 @@ static int32_t Script_SelectCharacter(lua_State* L) {
+@@ -74,7 +74,11 @@ static int32_t Script_SetCharacterSelectFacing(lua_State* L) {
+         return 0;
+     }
+ 
+-    CharacterSelectionDisplay::SetCharacterFacing(lua_tonumber(L, 1) * 0.017453292f);
++    const float angle = static_cast<float>(lua_tonumber(L, 1)) * 0.017453292f;
++    if (CCharacterSelection::InnCastUserFacing(angle)) {     // v49: inn cast on: turn in place, do not move to the stage slot
++        return 1;
++    }
++    CharacterSelectionDisplay::SetCharacterFacing(angle);
+     return 1;
+ }
+ 
+@@ -401,8 +405,24 @@ static int32_t Script_SelectCharacter(lua_State* L) {
      return 0;
  }
  
@@ -1795,7 +1868,7 @@ index 0000000..37d3581
 +}
 diff --git a/WoW/Source/Glue/InnWalkers.h b/WoW/Source/Glue/InnWalkers.h
 new file mode 100644
-index 0000000..5492d59
+index 0000000..b032f61
 --- /dev/null
 +++ b/WoW/Source/Glue/InnWalkers.h
 @@ -0,0 +1,711 @@
@@ -1913,7 +1986,7 @@ index 0000000..5492d59
 +inline float Rand01(State& s) { return static_cast<float>(Rand(s) & 0xFFFFFF) / 16777216.0f; }
 +inline float RandRange(State& s, float a, float b) { return a + (b - a) * Rand01(s); }
 +
-+inline float NormAngle(float a) { while (a > kPi) a -= 2.0f * kPi; while (a < -kPi) a += 2.0f * kPi; return a; }
++inline float NormAngle(float a) { if (!std::isfinite(a)) return 0.0f; a = std::fmod(a, 2.0f * kPi); if (a > kPi) a -= 2.0f * kPi; else if (a < -kPi) a += 2.0f * kPi; return a; }     // v49: the old loops never ended for an infinite or huge angle (a silent freeze)
 +inline float Dist(float ax, float ay, float bx, float by) { return std::hypot(bx - ax, by - ay); }
 +
 +inline void BuildGraph(State& s, const InnWalk::State& g) {

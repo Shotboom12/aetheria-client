@@ -32,7 +32,8 @@ Status: written and tested by the Aetheria owner on the Aetheria x64 client (bui
 All in `InnCast.cfg`, as `NAME=value`; `#` starts a comment.
 
 - Layout and room: `WOW_INN_CAST`, `WOW_INN_CAST_START` (built at once, 15), `WOW_INN_CAST_TRICKLE_MS`, `WOW_INN_WMO` (the room), `WOW_INN_WMO_X/Y/Z/YAW/SCALE/BRIGHT/DOODADS`, `WOW_INN_CAM_*` (room camera), `WOW_INN_CAST_PER_ROW/SPACING/ROW_SPACING`.
-- Rotation: `WOW_INN_ROTATE_FIRST` (30 s), `WOW_INN_ROTATE_MIN/MAX` (30 and 45 s), `WOW_INN_STAY_FIRST` (6), `WOW_INN_STAY_NAMES` (comma-separated character names that never leave), `WOW_INN_COME_WALK_SEC` (3, then they run), `WOW_INN_RUN_MULT` (2).
+- Rotation: `WOW_INN_ROTATE_FIRST` (30 s), `WOW_INN_ROTATE_MIN/MAX` (30 and 45 s), `WOW_INN_STAY_FIRST` (6), `WOW_INN_STAY_NAMES` (comma-separated character names that never leave), `WOW_INN_COME_WALK_SEC` (3, then they run), `WOW_INN_RUN_MULT` (2), `WOW_INN_STAY_MIN` (60: a character who walked in cannot be picked to leave for this many seconds; 0 = off).
+- Backdrop: the room is placed in the select scene's backdrop model, so it is pinned to the Orc backdrop (`Interface\Glues\Models\UI_Orc\UI_Orc.m2`) whatever the first listed character is. `WOW_INN_CAST_BACKGROUND=<full model path>` overrides it. The value must be a full model path, not a race name.
 - Walking: `WOW_INN_WALKERS` (0 = old standing line-up), `WOW_INN_WALK_SPEED/PAUSE_MIN/PAUSE_MAX/MAX/LONG_MIN/LONG_MAX/AWAY_MIN/AWAY_MAX/WANDER_W/STAND_W/SPREAD/RANGE`, `WOW_INN_SIT_SIDE` and `WOW_INN_SIT_SIDE_<raceId>`.
 - Camera zoom on click: `WOW_INN_CAST_ZOOM/FRAME/FRAME_HEAD/FRAME_PITCH`, per race `WOW_INN_CAST_FRAME_RACE_<raceId>` and `WOW_INN_CAST_BOUNDS_DIV_RACE_<raceId>`.
 - See-through: `WOW_INN_FADE` (1 on), `WOW_INN_FADE_MODE` (1 fade, 2 hide), `WOW_INN_FADE_WALLS`, `WOW_INN_FADE_RADIUS`, `WOW_INN_FADE_TARGET_CLEAR`, `WOW_INN_FADE_DOODAD_MAX/SHRINK`, `WOW_INN_FADE_TIME`, `WOW_INN_FADE_TRI_MAX`.
@@ -50,7 +51,8 @@ The full list with defaults is in `WoW/Source/Glue/CharacterSelection.cpp` (sear
 - The room is the Goldshire inn only. The placement numbers in `InnCast.cfg` were tuned for it.
 - Per-race zoom values were tuned by eye for the races in this repository.
 - "Recently played" uses the `lastCharacterIndex` setting and list order. Favorites are the names you list in `WOW_INN_STAY_NAMES`.
-- A character who has just arrived can be picked to leave again soon after.
+- Right-dragging on the screen turns the selected character in place; the turn is kept until you select someone else. Mirrored forms are not turned in the inn.
+- With the inn on, a small watchdog writes `InnWatchdog.log` in the game folder if the select screen stops ticking for 6 seconds, with the phase it was last in. If you report a freeze, include that file and `Logs\Extensions.log`.
 
 ## Credits
 

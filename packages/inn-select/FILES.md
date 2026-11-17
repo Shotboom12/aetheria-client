@@ -10,18 +10,19 @@ Everything lives in the normal client tree. To add only the inn select to anothe
 | `InnWalk.h` | new: reads `InnWalk.cfg` (the walking map) |
 | `InnWalkers.h` | new: the walkers (walk, sit, lean, chat, leave and arrive through doors) |
 | `CharacterSelection.cpp` | cast placement, camera, rotation, list reordering; about 1,500 added lines |
-| `CharacterSelection.h` | four new static functions: `InnCastSlot`, `InnCastShow`, `InnCastTick`, `InnCastReset` |
-| `CharacterSelection_Scripts.cpp` | Lua function `MoveCharacter(from, to)` |
+| `CharacterSelection.h` | five new static functions: `InnCastSlot`, `InnCastShow`, `InnCastTick`, `InnCastReset`, `InnCastUserFacing` |
+| `CharacterSelection_Scripts.cpp` | Lua function `MoveCharacter(from, to)`; `SetCharacterSelectFacing` turns the selected character in place while the inn is on |
 | `CharacterSelectionDisplay.cpp` | uses `InnCastSlot` for the selected character's position |
 
 The three new `.h` files are header-only (no CMake change; they are included from `CharacterSelection.cpp`).
 
-`patches/inn-select-client.patch` contains all seven as a `git diff` against the previously published client (commit `7293221`). It was checked to reproduce the tested files exactly. This repository stores text with LF line endings, so if your files use CRLF apply it with `git apply --whitespace=fix` (or `patch -p1 -l`).
+`patches/inn-select-client.patch` contains all seven as a `git diff` against the client as published before the inn select (commit `7293221`). It was checked to reproduce the tested files exactly. This repository stores text with LF line endings, so if your files use CRLF apply it with `git apply --whitespace=fix` (or `patch -p1 -l`).
 
 ## Game folder (next to the executable)
 
 - `config/InnCast.cfg`: all settings (see the README).
 - `config/InnWalk.cfg`: the walking map of the Goldshire inn.
+- `InnWatchdog.log` is written by the game only if the select screen stalls for 6 seconds (inn on); attach it to a freeze report.
 - `InnCharOrder.cfg` is created by the game when you drag names. It holds character names, so do not share it.
 
 ## Lua (optional, drag reorder)

@@ -112,7 +112,7 @@ inline uint32_t Rand(State& s) { s.rng ^= s.rng << 13; s.rng ^= s.rng >> 17; s.r
 inline float Rand01(State& s) { return static_cast<float>(Rand(s) & 0xFFFFFF) / 16777216.0f; }
 inline float RandRange(State& s, float a, float b) { return a + (b - a) * Rand01(s); }
 
-inline float NormAngle(float a) { while (a > kPi) a -= 2.0f * kPi; while (a < -kPi) a += 2.0f * kPi; return a; }
+inline float NormAngle(float a) { if (!std::isfinite(a)) return 0.0f; a = std::fmod(a, 2.0f * kPi); if (a > kPi) a -= 2.0f * kPi; else if (a < -kPi) a += 2.0f * kPi; return a; }     // v49: the old loops never ended for an infinite or huge angle (a silent freeze)
 inline float Dist(float ax, float ay, float bx, float by) { return std::hypot(bx - ax, by - ay); }
 
 inline void BuildGraph(State& s, const InnWalk::State& g) {
