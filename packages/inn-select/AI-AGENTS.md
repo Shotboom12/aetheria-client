@@ -77,7 +77,17 @@ Read this together with [README.md](README.md) and [FILES.md](FILES.md). It tell
 | Clicking a character and then right-dragging to rotate them moves them to the stage slot | The stock rotate call places the model on its line-up slot and turns it; in the inn the selected character is driven by its walker. | `CCharacterSelection::InnCastUserFacing`, called from `Script_SetCharacterSelectFacing`, only stores the angle (`s_charFacing`, reset to 0 at every selection) and the placement code adds it to the walker's facing. |
 | Silent freeze (no crash message, no `Crash.txt`) after a few minutes | Not confirmed. A normal crash writes `Errors\*Crash.txt`; a freeze means the main thread stopped. One possible cause fixed: `NormAngle` looped forever for an infinite or huge angle. | `NormAngle` now uses `isfinite` and `fmod`. A watchdog (inn on) writes `InnWatchdog.log` after 6 seconds without a frame tick, with the last phase (camera, rotate, walkers, trickle, emote, anim inventory, wmo draw, or after the inn tick, meaning the engine, renderer or driver). Use it to locate the next freeze. |
 | A character who just walked in is picked to leave soon after | The leaver was chosen only from the stay rules. | `WOW_INN_STAY_MIN` (60 s): a late or rotating-in character cannot be picked to leave until that time has passed. The first batch at open is exempt. |
+| A retail WMO set in `WOW_INN_WMO` loads but the room is dark, has little furniture, or does not look like the classic bar | Retail remakes light interiors with a newer light list the client does not read, and keep few props in the WMO (the Shadowlands-era Goldshire inn has 141 doodads and one set; the classic has 426 over four sets). `WOW_INN_WMO_DOODAD_SET=2` does not exist in a one-set root. | Use `WOW_INN_WMO_DOODAD_SET=0` for a one-set root, raise `WOW_INN_WMO_BRIGHT` (about 3.0 worked), or use a replacement of the classic inn that keeps the classic doodad sets (see the README section "Use a different inn model"). |
+| The inn loads but is untextured or half missing after swapping the WMO | The root's materials name textures (`MOTX`) that are not in your archives, or the group files are missing. | Read the root's `MOTX` and `MODN` lists and check each file against all your archives; add the missing ones to the same overlay archive. `InnWmo: ... groups=N/N` must show every group loaded. |
 | A character picked to leave turns back or never reaches the door | The stay logic can cancel a leave, or a walker has no path to an entrance. | A leaving character that does not reach a door within 60 seconds is removed anyway. If it happens often, check `InnWalk.cfg` links to the entrance spots. |
+
+## Replacing the inn model: checklist
+
+1. Read the new root (chunk by chunk): `MOHD` (materials, groups), `MOGI` group boxes, `MODS` doodad sets, `MOTX`/`MODN` file lists.
+2. Compare the group boxes with the classic inn. The same hall and upstairs coordinates mean `InnWalk.cfg` fits; a different origin or layout means the walking map, seats, leans, entrances and camera must be redone.
+3. Check every texture and model name against all archives; collect the missing ones.
+4. Put the root, groups and missing files in one overlay archive that sorts after every archive holding the old root. Add nothing that already exists unchanged.
+5. Verify the loaded numbers in `Logs\Extensions.log` and have the user look at the room, the seats and the zoom.
 
 ## Known open items
 

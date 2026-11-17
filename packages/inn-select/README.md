@@ -40,6 +40,15 @@ All in `InnCast.cfg`, as `NAME=value`; `#` starts a comment.
 
 The full list with defaults is in `WoW/Source/Glue/CharacterSelection.cpp` (search for `WOW_INN_`). The walking map format (`WP`, `LINK`, `SPOT`, entrance spots) is explained at the top of `config/InnWalk.cfg`.
 
+## Use a different inn model
+
+No inn model is included. The room is whatever `WOW_INN_WMO` points at, read from the game's data. Two ways to change it:
+
+- **A better-looking copy of the same inn (recommended).** Put the replacement root and group files at the same path (`World\wmo\Azeroth\Buildings\GoldshireInn\`) in a patch archive that loads after every archive holding the old ones, together with any textures your data lacks. Nothing else changes. The classic origin and layout must be kept: the walking map (`InnWalk.cfg`), seats, leans and camera are placed in the inn's own coordinates. Check the group boxes in the root (`MOGI`) against the classic inn before you start; the same hall and upstairs should line up. The doodad sets (`MODS`) should be the classic ones; `WOW_INN_WMO_DOODAD_SET=2` is the furniture the map was built around. One high-detail copy of the Goldshire inn was tested this way: 9 groups, 86,226 vertices, 37 materials, 422 doodads (global set plus set 2), retail-derived textures, and the classic furniture models. It needed no setting changes and the existing map fitted.
+- **A retail WMO read directly.** If the client's retail reader is set up (`RetailCasc.ini`, your own retail access), `WOW_INN_WMO=retail\<FileDataID>.wmo` loads a retail WMO. Tested with the Shadowlands-era Goldshire inn remake (file ID 3718980): it has the same footprint, but only one doodad set (use `WOW_INN_WMO_DOODAD_SET=0`), far fewer props (141 against 426, so it does not look like the classic bar), baked colours that need `WOW_INN_WMO_BRIGHT` around 3.0, and its newer light list (`MNLD`) is not read, so dark corners stay dark. A few doodads can stay pending if their models need features the retail model reader does not support. Decoded retail files stay on your machine; do not put them in a repository.
+
+After any change, leave the select screen and re-enter it. `Logs\Extensions.log` shows `InnWmo: <path> groups=N/N vertices=... materials=... doodads=... ok=1` and the `InnWmo furniture ... failed=` line.
+
 ## Rollback
 
 - Turn it off with `WOW_INN_CAST=0` (no rebuild).
