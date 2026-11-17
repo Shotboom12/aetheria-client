@@ -6739,6 +6739,7 @@ void CM2Model::SetBoneSequenceDeferred(uint16_t sequenceIndex, M2Data* data, uin
 
     if (data->m_sequences[sequenceIndex].m_flags & 0x10) {
         uint16_t index = sequenceIndex;
+        uint32_t aliasGuard = 0;     // v51: at most one pass over the alias chain (a broken chain never loops back and froze the game)
 
         while (true) {
             TSList<CM2SequenceLoad>& loads = this->m_shared->m_sequenceLoads;
@@ -6761,7 +6762,7 @@ void CM2Model::SetBoneSequenceDeferred(uint16_t sequenceIndex, M2Data* data, uin
 
             index = data->m_sequences[index].m_aliasNext;
 
-            if (index == sequenceIndex) {
+            if (index == sequenceIndex || ++aliasGuard > data->m_sequences.m_count || index >= data->m_sequences.m_count) {
                 return;
             }
         }

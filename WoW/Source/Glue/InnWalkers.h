@@ -47,6 +47,9 @@ struct Config {
     float range = 9.0f;             // walks prefer places within this many yards of where the character stands
     float comeWalkSec = 3.0f;       // v45: a clicked character that is not in the hall walks in from a door for this long, then runs
     float runSpeedMult = 2.0f;      // v45: running speed = walking speed x this
+    float circleWeight = 30.0f;     // v52: chance weight of joining the talking circle while nobody is in it (was 24)
+    float circleWeightStarted = 90.0f;      // v52: ... once somebody is (was 50): a started circle draws people in
+    int32_t circleExtraWalkers = 2;     // v52: joining a started circle may exceed the walking cap by this many (door traffic and arrivals use up the cap)
 };
 
 struct CharIn { bool ready = false; bool hasWalk = false; uint32_t emoteMask = 0; bool arrive = false; bool hasRun = false; bool coming = false; bool leave = false; };   // arrive: just built, enter through an entrance spot; coming: clicked while away, take the shortest way in and run if it takes long; leave: walk out through a door (v45)
@@ -216,7 +219,8 @@ inline bool NodeFree(const State& s, int32_t i, int32_t who) {
         // somebody sitting on the floor (animation 97, e.g. by the fireplace) gets a wider keep-clear circle than a standing person
         const Walker& ow = s.walkers[k];
         const bool floorSitter = ow.mode == M_Long && ow.spotKind == K_Sit && ow.node >= 0 && ow.node < static_cast<int32_t>(s.nodes.size()) && s.nodes[ow.node].anim == 97;
-        if (Dist(ow.x, ow.y, n.x, n.y) < (floorSitter ? 1.9f : 1.2f)) return false;
+        const float clearRadius = floorSitter ? 1.9f : (n.kind == K_Circle ? 0.85f : 1.2f);     // v52: a talking-circle seat only needs 0.85 yd (the drink spot beside it blocked the seat at 1.2)
+        if (Dist(ow.x, ow.y, n.x, n.y) < clearRadius) return false;
     }
     return true;
 }
@@ -269,14 +273,19 @@ inline void ChooseActivity(State& s, int32_t who, const Config& cfg, const std::
     const int32_t walking = CountMode(s, M_Walk);
     const bool force = w.forceMove;
     w.forceMove = false;
-    const bool canWalk = (walking < maxWalking || force) && in[who].hasWalk && w.node >= 0;
+    // v52: somebody already in the talking circle? Then joining it may use a few walkers beyond the cap (door arrivals and leavers count as walking and kept the circle from filling).
+    bool someoneInCircle = false;
+    for (int32_t i = 0; i < nodeCount; i++) if (s.nodes[i].kind == K_Circle && s.nodes[i].reservedBy >= 0 && s.nodes[i].reservedBy != who) someoneInCircle = true;
+    const bool canWalkAny = (walking < maxWalking || force) && in[who].hasWalk && w.node >= 0;
+    const bool canWalkCircle = !canWalkAny && someoneInCircle && walking < maxWalking + std::max(0, cfg.circleExtraWalkers) && in[who].hasWalk && w.node >= 0;
+    const bool canWalk = canWalkAny || canWalkCircle;
 
     // available targets
     std::vector<int32_t> wander, drink, lean, away, sit, circle;
-    bool someoneInCircle = false;
     if (canWalk) {
         for (int32_t i = 0; i < nodeCount; i++) {
             if (i == w.node || !NodeFree(s, i, who)) continue;
+            if (canWalkCircle && s.nodes[i].kind != K_Circle) continue;
             const float d = Dist(w.x, w.y, s.nodes[i].x, s.nodes[i].y);
             switch (s.nodes[i].kind) {
                 case K_Drink: drink.push_back(i); break;
@@ -304,7 +313,7 @@ inline void ChooseActivity(State& s, int32_t who, const Config& cfg, const std::
     KeepRoomy(s, who, cfg.spread * 0.6f, lean);
     // chat partners
     std::vector<int32_t> partners;
-    if (canWalk && !force && (in[who].emoteMask & 1u)) {
+    if (canWalkAny && !force && (in[who].emoteMask & 1u)) {
         for (int32_t j = 0; j < static_cast<int32_t>(s.walkers.size()); j++) {
             if (j == who) continue;
             const Walker& o = s.walkers[j];
@@ -321,9 +330,8 @@ inline void ChooseActivity(State& s, int32_t who, const Config& cfg, const std::
     const float wLean = lean.empty() ? 0.0f : 12.0f;
     const float wChat = partners.empty() ? 0.0f : 18.0f;
     const float wAway = away.empty() ? 0.0f : 6.0f;
-    for (int32_t i = 0; i < nodeCount; i++) if (s.nodes[i].kind == K_Circle && s.nodes[i].reservedBy >= 0 && s.nodes[i].reservedBy != who) someoneInCircle = true;
     const float wSit = sit.empty() ? 0.0f : 20.0f;
-    const float wCircle = circle.empty() ? 0.0f : (someoneInCircle ? 50.0f : 24.0f);     // a started circle draws more people in
+    const float wCircle = circle.empty() ? 0.0f : (someoneInCircle ? cfg.circleWeightStarted : cfg.circleWeight);     // a started circle draws more people in
     const float total = wWander + wStand + wDrink + wLean + wChat + wAway + wSit + wCircle;
     float r = Rand01(s) * total;
 

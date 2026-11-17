@@ -18,6 +18,10 @@ The three new `.h` files are header-only (no CMake change; they are included fro
 
 `patches/inn-select-client.patch` contains all seven as a `git diff` against the client as published before the inn select (commit `7293221`). It was checked to reproduce the tested files exactly. This repository stores text with LF line endings, so if your files use CRLF apply it with `git apply --whitespace=fix` (or `patch -p1 -l`).
 
+## Engine fix for silent freezes (recommended)
+
+`patches/m2-alias-chain-guard.patch` bounds the four animation alias-chain walks in `Engine/Source/Model2/M2Shared.cpp` and `M2Model.cpp` to one pass over the model's sequence count. Some retail-converted models have chains that never loop back to their start, and the engine loader then spins forever; the inn triggers it because it plays sit, lean, drink and emote animations loaded from their own files. It is an engine fix that also protects the world. See the problem table in `AI-AGENTS.md`.
+
 ## Game folder (next to the executable)
 
 - `config/InnCast.cfg`: all settings (see the README).

@@ -1,5 +1,5 @@
 diff --git a/WoW/Source/Glue/CharacterSelection.cpp b/WoW/Source/Glue/CharacterSelection.cpp
-index 9e90b67..78fd63e 100644
+index 9e90b67..80aef2b 100644
 --- a/WoW/Source/Glue/CharacterSelection.cpp
 +++ b/WoW/Source/Glue/CharacterSelection.cpp
 @@ -1,12 +1,29 @@
@@ -52,7 +52,7 @@ index 9e90b67..78fd63e 100644
      LoadingScreenMiniDisable();
      CharacterSelectionDisplay::ClearFormMirror();
  
-@@ -323,10 +346,1479 @@ CharacterSelectionDisplay* CCharacterSelection::GetCharacterDisplay(uint32_t ind
+@@ -323,10 +346,1482 @@ CharacterSelectionDisplay* CCharacterSelection::GetCharacterDisplay(uint32_t ind
      return nullptr;
  }
  
@@ -1106,6 +1106,9 @@ index 9e90b67..78fd63e 100644
 +    walkCfg.range = std::max(1.0f, InnCastEnvFloat("WOW_INN_WALK_RANGE", 9.0f));
 +    walkCfg.comeWalkSec = std::max(0.0f, InnCastEnvFloat("WOW_INN_COME_WALK_SEC", 3.0f));
 +    walkCfg.runSpeedMult = std::max(1.0f, InnCastEnvFloat("WOW_INN_RUN_MULT", 2.0f));
++    walkCfg.circleWeight = std::max(0.0f, InnCastEnvFloat("WOW_INN_CIRCLE_W", 30.0f));     // v52: talking circle
++    walkCfg.circleWeightStarted = std::max(0.0f, InnCastEnvFloat("WOW_INN_CIRCLE_W_STARTED", 90.0f));
++    walkCfg.circleExtraWalkers = static_cast<int32_t>(InnCastEnvFloat("WOW_INN_CIRCLE_EXTRA", 2.0f));
 +
 +    static std::vector<InnWalkers::CharOut> out;
 +    InnWalkers::Update(dtMs * 0.001f, walkCfg, graph, in, (CCharacterSelection::s_selectionIndex == s_innReleasedSel) ? -1 : static_cast<int32_t>(CCharacterSelection::s_selectionIndex), camX, camY, out);
@@ -1532,7 +1535,7 @@ index 9e90b67..78fd63e 100644
      if (CCharacterSelection::s_selectionIndex < 0 || CCharacterSelection::s_selectionIndex >= static_cast<int32_t>(CCharacterSelection::s_characterList.Count())) {
          CGlueLoading::Idle(nullptr);
          return 1;
-@@ -350,6 +1842,7 @@ int32_t CCharacterSelection::Idle(const void* data, void* param) {
+@@ -350,6 +1845,7 @@ int32_t CCharacterSelection::Idle(const void* data, void* param) {
  // VERIFY: f62a960c auto
  // OFFSET: 0x004E3120
  void CCharacterSelection::OnHide() {
@@ -1540,7 +1543,7 @@ index 9e90b67..78fd63e 100644
      EventUnregister(EVENT_ID_IDLE, &CCharacterSelection::Idle);
      LoadingScreenMiniDisable();
  }
-@@ -409,6 +1902,31 @@ void CCharacterSelection::SetBackgroundModel(const char* modelName) {
+@@ -409,6 +1905,31 @@ void CCharacterSelection::SetBackgroundModel(const char* modelName) {
          return;
      }
  
@@ -1572,7 +1575,7 @@ index 9e90b67..78fd63e 100644
      if (CCharacterSelection::m_modelFrame->m_model && !SStrCmpI(modelName, CCharacterSelection::m_modelFrame->m_model->m_shared->m_fileName, STORM_MAX_STR)) {
          return;
      }
-@@ -469,7 +1987,28 @@ void CCharacterSelection::DressComponent(const CHARACTER_INFO& info, CCharacterC
+@@ -469,7 +1990,28 @@ void CCharacterSelection::DressComponent(const CHARACTER_INFO& info, CCharacterC
  
          if (slot == INVSLOT_MAINHAND || slot == INVSLOT_OFFHAND || (slot == INVSLOT_RANGED && hunter)) {
              if (found) {
@@ -1602,7 +1605,7 @@ index 9e90b67..78fd63e 100644
  
                  if (slot == INVSLOT_RANGED) {
                      if (info.m_inventoryItemType[INVSLOT_RANGED] == INVTYPE_RANGED) {
-@@ -673,6 +2212,8 @@ void CCharacterSelection::ShowCharacter() {
+@@ -673,6 +2215,8 @@ void CCharacterSelection::ShowCharacter() {
          if (CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_petModel) {
              CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_petModel->AttachToParent(CCharacterSelection::m_modelFrame->m_model, 1, nullptr, 0);
          }
@@ -1611,7 +1614,7 @@ index 9e90b67..78fd63e 100644
      }
  
      CGlueLoading::StartLoad(CCharacterSelection::s_characterList[CCharacterSelection::s_selectionIndex].m_component, newComponent);
-@@ -696,6 +2237,7 @@ void CCharacterSelection::UpdateCharacterList() {
+@@ -696,6 +2240,7 @@ void CCharacterSelection::UpdateCharacterList() {
      CCharacterSelection::s_raceRestrictions[9] = 0;
  
      ClientServices::Connection()->EnumerateCharacters(&CCharacterSelection::EnumerateCharactersCallback, nullptr);
@@ -1868,10 +1871,10 @@ index 0000000..37d3581
 +}
 diff --git a/WoW/Source/Glue/InnWalkers.h b/WoW/Source/Glue/InnWalkers.h
 new file mode 100644
-index 0000000..b032f61
+index 0000000..3caa762
 --- /dev/null
 +++ b/WoW/Source/Glue/InnWalkers.h
-@@ -0,0 +1,711 @@
+@@ -0,0 +1,719 @@
 +#pragma once
 +// Claude 2026-11-15: the cast of the inn character select walks around (stage 3, step 3.3). PURE LOGIC: no engine calls here. The caller
 +// (CharacterSelection.cpp) tells it which characters are ready and which is selected, and applies the returned position/heading/animation.
@@ -1921,6 +1924,9 @@ index 0000000..b032f61
 +    float range = 9.0f;             // walks prefer places within this many yards of where the character stands
 +    float comeWalkSec = 3.0f;       // v45: a clicked character that is not in the hall walks in from a door for this long, then runs
 +    float runSpeedMult = 2.0f;      // v45: running speed = walking speed x this
++    float circleWeight = 30.0f;     // v52: chance weight of joining the talking circle while nobody is in it (was 24)
++    float circleWeightStarted = 90.0f;      // v52: ... once somebody is (was 50): a started circle draws people in
++    int32_t circleExtraWalkers = 2;     // v52: joining a started circle may exceed the walking cap by this many (door traffic and arrivals use up the cap)
 +};
 +
 +struct CharIn { bool ready = false; bool hasWalk = false; uint32_t emoteMask = 0; bool arrive = false; bool hasRun = false; bool coming = false; bool leave = false; };   // arrive: just built, enter through an entrance spot; coming: clicked while away, take the shortest way in and run if it takes long; leave: walk out through a door (v45)
@@ -2090,7 +2096,8 @@ index 0000000..b032f61
 +        // somebody sitting on the floor (animation 97, e.g. by the fireplace) gets a wider keep-clear circle than a standing person
 +        const Walker& ow = s.walkers[k];
 +        const bool floorSitter = ow.mode == M_Long && ow.spotKind == K_Sit && ow.node >= 0 && ow.node < static_cast<int32_t>(s.nodes.size()) && s.nodes[ow.node].anim == 97;
-+        if (Dist(ow.x, ow.y, n.x, n.y) < (floorSitter ? 1.9f : 1.2f)) return false;
++        const float clearRadius = floorSitter ? 1.9f : (n.kind == K_Circle ? 0.85f : 1.2f);     // v52: a talking-circle seat only needs 0.85 yd (the drink spot beside it blocked the seat at 1.2)
++        if (Dist(ow.x, ow.y, n.x, n.y) < clearRadius) return false;
 +    }
 +    return true;
 +}
@@ -2143,14 +2150,19 @@ index 0000000..b032f61
 +    const int32_t walking = CountMode(s, M_Walk);
 +    const bool force = w.forceMove;
 +    w.forceMove = false;
-+    const bool canWalk = (walking < maxWalking || force) && in[who].hasWalk && w.node >= 0;
++    // v52: somebody already in the talking circle? Then joining it may use a few walkers beyond the cap (door arrivals and leavers count as walking and kept the circle from filling).
++    bool someoneInCircle = false;
++    for (int32_t i = 0; i < nodeCount; i++) if (s.nodes[i].kind == K_Circle && s.nodes[i].reservedBy >= 0 && s.nodes[i].reservedBy != who) someoneInCircle = true;
++    const bool canWalkAny = (walking < maxWalking || force) && in[who].hasWalk && w.node >= 0;
++    const bool canWalkCircle = !canWalkAny && someoneInCircle && walking < maxWalking + std::max(0, cfg.circleExtraWalkers) && in[who].hasWalk && w.node >= 0;
++    const bool canWalk = canWalkAny || canWalkCircle;
 +
 +    // available targets
 +    std::vector<int32_t> wander, drink, lean, away, sit, circle;
-+    bool someoneInCircle = false;
 +    if (canWalk) {
 +        for (int32_t i = 0; i < nodeCount; i++) {
 +            if (i == w.node || !NodeFree(s, i, who)) continue;
++            if (canWalkCircle && s.nodes[i].kind != K_Circle) continue;
 +            const float d = Dist(w.x, w.y, s.nodes[i].x, s.nodes[i].y);
 +            switch (s.nodes[i].kind) {
 +                case K_Drink: drink.push_back(i); break;
@@ -2178,7 +2190,7 @@ index 0000000..b032f61
 +    KeepRoomy(s, who, cfg.spread * 0.6f, lean);
 +    // chat partners
 +    std::vector<int32_t> partners;
-+    if (canWalk && !force && (in[who].emoteMask & 1u)) {
++    if (canWalkAny && !force && (in[who].emoteMask & 1u)) {
 +        for (int32_t j = 0; j < static_cast<int32_t>(s.walkers.size()); j++) {
 +            if (j == who) continue;
 +            const Walker& o = s.walkers[j];
@@ -2195,9 +2207,8 @@ index 0000000..b032f61
 +    const float wLean = lean.empty() ? 0.0f : 12.0f;
 +    const float wChat = partners.empty() ? 0.0f : 18.0f;
 +    const float wAway = away.empty() ? 0.0f : 6.0f;
-+    for (int32_t i = 0; i < nodeCount; i++) if (s.nodes[i].kind == K_Circle && s.nodes[i].reservedBy >= 0 && s.nodes[i].reservedBy != who) someoneInCircle = true;
 +    const float wSit = sit.empty() ? 0.0f : 20.0f;
-+    const float wCircle = circle.empty() ? 0.0f : (someoneInCircle ? 50.0f : 24.0f);     // a started circle draws more people in
++    const float wCircle = circle.empty() ? 0.0f : (someoneInCircle ? cfg.circleWeightStarted : cfg.circleWeight);     // a started circle draws more people in
 +    const float total = wWander + wStand + wDrink + wLean + wChat + wAway + wSit + wCircle;
 +    float r = Rand01(s) * total;
 +

@@ -1396,6 +1396,9 @@ void InnCastWalkers(float dtMs) {
     walkCfg.range = std::max(1.0f, InnCastEnvFloat("WOW_INN_WALK_RANGE", 9.0f));
     walkCfg.comeWalkSec = std::max(0.0f, InnCastEnvFloat("WOW_INN_COME_WALK_SEC", 3.0f));
     walkCfg.runSpeedMult = std::max(1.0f, InnCastEnvFloat("WOW_INN_RUN_MULT", 2.0f));
+    walkCfg.circleWeight = std::max(0.0f, InnCastEnvFloat("WOW_INN_CIRCLE_W", 30.0f));     // v52: talking circle
+    walkCfg.circleWeightStarted = std::max(0.0f, InnCastEnvFloat("WOW_INN_CIRCLE_W_STARTED", 90.0f));
+    walkCfg.circleExtraWalkers = static_cast<int32_t>(InnCastEnvFloat("WOW_INN_CIRCLE_EXTRA", 2.0f));
 
     static std::vector<InnWalkers::CharOut> out;
     InnWalkers::Update(dtMs * 0.001f, walkCfg, graph, in, (CCharacterSelection::s_selectionIndex == s_innReleasedSel) ? -1 : static_cast<int32_t>(CCharacterSelection::s_selectionIndex), camX, camY, out);

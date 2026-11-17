@@ -1775,7 +1775,13 @@ int32_t CM2Shared::FinishLoadingLowPrioritySequence(uint32_t sequenceIndex, CAsy
         return 0;
     }
 
+    // v51: the alias chain of a well-formed model loops back to its start; a broken one (some retail-converted models) never does and froze the game. Walk at most one pass.
+    uint32_t aliasGuard = 0;
+    const uint32_t aliasLimit = this->m_data->m_sequences.m_count;
     for (uint16_t* alias = &sequence->m_aliasNext; *alias != sequenceIndex; alias = &this->m_data->m_sequences[*alias].m_aliasNext) {
+        if (++aliasGuard > aliasLimit || *alias >= aliasLimit) {
+            break;
+        }
         if (!this->FinishLoadingLowPrioritySequence(*alias, static_cast<uint8_t*>(object->m_buffer), object->m_size)) {
             return 0;
         }
@@ -2238,7 +2244,12 @@ CM2SequenceLoad* CM2Shared::LoadLowPrioritySequence(uint16_t sequenceIndex) {
 
     M2Sequence* source = sequence;
 
+    uint32_t aliasGuard = 0;     // v51: at most one pass over the alias chain
+    const uint32_t aliasLimit = this->m_data->m_sequences.m_count;
     while (source->m_flags & 0x40) {
+        if (++aliasGuard > aliasLimit || source->m_aliasNext >= aliasLimit) {
+            break;
+        }
         source = &this->m_data->m_sequences[source->m_aliasNext];
     }
 
@@ -2284,7 +2295,12 @@ CM2SequenceLoad* CM2Shared::LoadLowPrioritySequence(uint16_t sequenceIndex) {
 
     sequence->m_flags |= 0x10;
 
+    uint32_t flagGuard = 0;     // v51: at most one pass over the alias chain
+    const uint32_t flagLimit = this->m_data->m_sequences.m_count;
     for (uint16_t i = sequence->m_aliasNext; i != sequenceIndex; i = this->m_data->m_sequences[i].m_aliasNext) {
+        if (++flagGuard > flagLimit || i >= flagLimit) {
+            break;
+        }
         this->m_data->m_sequences[i].m_flags |= 0x10;
     }
 
