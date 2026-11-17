@@ -119,6 +119,40 @@ For world and model shaders, follow the [offline Vulkan shader translation instr
 using your own client data. Vulkan remains work in progress; build success does not establish
 rendering or gameplay correctness.
 
+## What makes the Aetheria client
+
+Aetheria is this decompilation plus a set of optional parts added on top. Each part below says what it is, where it lives and where to read more. Unless a part says otherwise it needs the matching Aetheria server (`aetheria-server`) and the native race, appearance and protocol framework. Status words: "owner-tested" means the project owner played it in game; "built" only means it compiled. Nothing here is built from a fresh clone of this published tree yet.
+
+If you are an AI coding assistant, read [docs/aetheria/AI-SETUP-HANDOFF.md](docs/aetheria/AI-SETUP-HANDOFF.md) first: it holds the rules you must follow (no credentials, no unknown downloads, no Blizzard files, ask before starting anything, back up before changing).
+
+| Part | What it is | Where |
+|---|---|---|
+| Base client | The wowdecomp x64 decompilation of the 3.3.5a client (Saty), with the Esteria framework (Kalibros) | `Engine/`, `WoW/`, `CREDITS.md`, `NOTICE.md` |
+| Races and appearance | Native race support for Kyrian and Venthyr, plus the Hozen/Sylvari and other custom races, with race-specific models and skins | `packages/kyrian-venthyr/`, `docs/retail-race-*.md`, `docs/slime-giant.md` |
+| Added body models | Optional archives with new female bodies for retail races and the Sylvari female (body shape, boots, cape chain) | `packages/aetheria-models/` |
+| Physics | Spring cloaks, hair and body jiggle physics, with an options page | `Engine/Source/Retail/CapePhysics.h`, `HairPhysics.h`, `JigglePhysics.h`; the standalone reference is the `aetheria-physics` repository |
+| Body sliders | Per-character body shape sliders saved and applied in game | `Addons/WowDecompBodyShape`, `Extensions/BodyShapeSync`, `Engine/Source/Retail/BodyShape.h`, `docs/body-sliders-creator-plan.md` |
+| Hero / classless | Class ID 10 (Hero) data and tools for the paired client and server slice | `Tools/HeroClassData/` (read its README) |
+| Character hot-swap | Switch character from a wheel without going back to the character screen | `Extensions/CharacterSwap`, `Addons/EsteriaSwap`, `docs/character-hot-swap-plan.md` |
+| Housing | Client side of Esteria housing (panel and transport); needs the `mod-esteria-housing` server module | `Extensions/Housing`, `Addons/EsteriaHousing` |
+| Digital inventory | Native carried inventory window; needs the matching server subsystem | `Extensions/DigitalInventory`, `Addons/EsteriaInventory` |
+| Graphics | Native port of Azeroth Remastered (lamps, Lumenveil lighting, FSR, DLSS), the WaystoneHD menu and the Vulkan backend | `Engine/Source/Gx/CGxDeviceVulkan/hd/`, `Addons/WaystoneHD`, `Tools/ArShaders/`, `Tools/VulkanShaders/`, [docs/AZEROTH-REMASTERED-SETUP.md](docs/AZEROTH-REMASTERED-SETUP.md) |
+| Action camera | Action-camera suite with reticle, ported to x64 | `Extensions/ActionCameraPort`, `Addons/AetheriaActionCamera` |
+| WXL host and tools | In-client WXL API host with a Dear ImGui overlay (F9) and the seyris-tools port | `Extensions/WxlHost` (read its `NOTICE.md`) |
+| Speedflying and transmog | Client side of the Manastorm flying and transmogrification modules | `Addons/Manastorm_Speedflying`, `Addons/Manastorm_Transmog` |
+| Retail assets | Optional local CASC/CDN access and a native importer for retail models; you supply your own access | `Tools/RetailAssets/`, [docs/retail-casc.md](docs/retail-casc.md), `docs/retail-import-workflow.md` |
+| View distance and cursors | Interface options for view distance and native cursors | `Addons/WowDecompViewDistance`, `Addons/Cursors` |
+| Extended limits | Optional larger quest, container and class limits (needs a matching server) | [docs/uncaps.md](docs/uncaps.md) |
+| Inn character select | Optional living-inn character select, off by default; see the section below | `packages/inn-select/` |
+
+### Inn character select
+
+An alternative character select screen set in the Goldshire inn: characters walk, sit, lean, drink and chat; they leave and arrive through the three doors when you have more characters than the hall holds; clicking one who is not in the hall makes them walk or run in before the camera zooms; anything between the camera and the selected character fades out; and you can drag names in the list to reorder them. It is off by default (`WOW_INN_CAST` unset or 0).
+
+- Start with [packages/inn-select/README.md](packages/inn-select/README.md) (what it does, how to switch it on and off, every setting) and [packages/inn-select/FILES.md](packages/inn-select/FILES.md) (the seven source files, the two config files and the optional Lua patch).
+- **AI assistants:** follow [packages/inn-select/AI-AGENTS.md](packages/inn-select/AI-AGENTS.md). It gives the integration order, the checks to run, the way the parts fit together and every problem we hit while building it, with the fix.
+- Status: owner-tested in game on the Aetheria x64 client: door rotation, walk and run-in, camera zoom, see-through fade and drag reorder. Not built from this published tree. No Blizzard assets are included; the inn is read from your own game data.
+
 ## Layout
 
 | Path | Contents |
@@ -129,6 +163,7 @@ rendering or gameplay correctness.
 | `ThirdParty/` | Libraries linked from their upstream sources |
 | `Tools/WowClient/` | The `WowClient` executable target |
 | `Tools/XvidDecoder/` | x64 movie decoder that replaces the original 32-bit `DivxDecoder.dll` |
+| `packages/inn-select/` | Optional living-inn character select (characters walk, sit and chat in the Goldshire inn, rotate through the doors, drag to reorder); off by default. See its [README](packages/inn-select/README.md) |
 
 ## Special thanks
 

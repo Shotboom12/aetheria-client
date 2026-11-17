@@ -401,8 +401,24 @@ static int32_t Script_SelectCharacter(lua_State* L) {
     return 0;
 }
 
+// v46: MoveCharacter(from, to) (1-based list positions) moves a character in the list; returns the selected character's new position and whether anything moved.
+bool InnCastMoveEntry(int32_t from, int32_t to, int32_t* selectedAfter);
+static int32_t Script_MoveCharacter(lua_State* L) {
+    if (!lua_isnumber(L, 1) || !lua_isnumber(L, 2)) {
+        luaL_error(L, "Usage: MoveCharacter(fromIndex, toIndex)");
+        return 0;
+    }
+
+    int32_t selected = CCharacterSelection::s_selectionIndex;
+    const bool moved = InnCastMoveEntry(static_cast<int32_t>(lua_tonumber(L, 1)) - 1, static_cast<int32_t>(lua_tonumber(L, 2)) - 1, &selected);
+    lua_pushnumber(L, selected + 1);
+    lua_pushboolean(L, moved);
+    return 2;
+}
+
 // STATIC: 0x00AC4378
 static FrameScript_Method s_scriptFunctions[] = {
+    { "MoveCharacter", &Script_MoveCharacter },
     { "SetCharSelectModelFrame", &Script_SetCharSelectModelFrame },
     { "SetCharSelectBackground", &Script_SetCharSelectBackground },
     { "GetCharacterListUpdate", &Script_GetCharacterListUpdate },

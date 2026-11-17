@@ -72,3 +72,7 @@ If a credit is missing or wrong, tell the Aetheria owner and it will be fixed.
 ## Azeroth Remastered native port (2026-11-04)
 
 Lamps, Lumenveil lighting, FSR 3.1 and DLSS for Azeroth Remastered mode, plus the English WaystoneHD menu (Addons/WaystoneHD), build on Madominator1's Azeroth Remastered 2026-11-03 source (graphics work, credit stays with him) and on AMD FidelityFX and NVIDIA NGX. The native device glue, object-motion replay, G-buffer replay and the settings integration are Aetheria's.
+
+## Inn character select (2026-11-17)
+
+The optional living-inn character select (`packages/inn-select/`) was designed, tuned and tested by the Aetheria owner on top of the client framework credited above. The Goldshire inn and the character models are Blizzard Entertainment's and are read from the player's own game data; none are included.

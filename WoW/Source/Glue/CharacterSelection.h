@@ -6,6 +6,7 @@
 #include "WoW/Source/Object/WGUID.h"
 #include "Engine/Source/Storm/H/stpl.h"
 #include "WoW/Source/Glue/CharacterSelectionDisplay.h"
+#include "Engine/Source/Tempest/C3Vector.h"
 
 class CHARACTER_INFO;
 class CM2Lighting;
@@ -40,6 +41,11 @@ class CCharacterSelection {
     static void UpdateCharacterName(WOWGUID guid, const char* name);
     static void UpdateCharacterInfo(WOWGUID guid, const char* name, uint8_t sexID, uint8_t skinColorID, uint8_t faceID, uint8_t hairStyleID, uint8_t hairColorID, uint8_t facialHairStyleID, uint8_t raceID);
     static void UpdateCharacterNameDeclension(WOWGUID guid);
+    // Inn character select, stage 0 (off unless the environment variable WOW_INN_CAST is a number > 0; see CharacterSelection.cpp).
+    static bool InnCastSlot(uint32_t index, C3Vector& position);
+    static void InnCastShow();
+    static void InnCastTick();
+    static void InnCastReset(bool detachExtras = false);
 };
 
 extern const int32_t g_scriptSexIndex[3];

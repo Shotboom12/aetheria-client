@@ -138,12 +138,17 @@ void CharacterSelectionDisplay::SetCharacterFacing(float rotation) {
 
     if (display.m_component && display.m_component->m_data.m_model) {
         C3Vector position(0.0f, 0.0f, 0.0f);
+        CCharacterSelection::InnCastSlot(static_cast<uint32_t>(CCharacterSelection::s_selectionIndex), position);
         display.m_component->m_data.m_model->SetWorldTransform(position, rotation,
             RetailRacePreviewScale(display.m_characterInfo.m_raceID, display.m_characterInfo.m_sexID));
     }
     if (m_formMirror && m_formMirror->m_data.m_model) {
         C3Vector position(0.0f, 0.0f, 0.0f);
-        FormMirrorOffset(position.x, position.y);
+        CCharacterSelection::InnCastSlot(static_cast<uint32_t>(CCharacterSelection::s_selectionIndex), position);
+        float offsetX, offsetY;
+        FormMirrorOffset(offsetX, offsetY);
+        position.x += offsetX;
+        position.y += offsetY;
         m_formMirror->m_data.m_model->SetWorldTransform(position, rotation,
             RetailRacePreviewScale(display.m_characterInfo.m_raceID, display.m_characterInfo.m_sexID));
     }

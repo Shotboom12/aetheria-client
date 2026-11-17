@@ -1,0 +1,170 @@
+--- a/Interface/GlueXML/CharacterSelect.lua
++++ b/Interface/GlueXML/CharacterSelect.lua
+@@ -185,6 +185,14 @@
+ end
+ 
+ function CharacterSelect_OnUpdate(elapsed)
++	-- v47: redraw the rows a few frames after a drag drop (the click that ends the drag can leave the old order on screen)
++	if ( CharacterSelect_RefreshPending and CharacterSelect_RefreshPending > 0 ) then
++		CharacterSelect_RefreshPending = CharacterSelect_RefreshPending - 1;
++		if ( CharacterSelect_RefreshPending == 0 ) then
++			CharacterSelect_RefreshRows();
++			CharacterSelect_RedrawEcs();
++		end
++	end
+ 	if ( SERVER_SPLIT_STATE_PENDING > 0 ) then
+ 		CharacterSelectRealmSplitButton:Show();
+ 
+@@ -366,8 +374,152 @@
+ 	scrollSyncing = false;
+ end
+ 
++-- v46: drag a character row onto another row to change its place in the list. The first 6 characters always stay in the inn. Needs the MoveCharacter function of the v46 client.
++local dragButton, dragFrom, dragStartY, dragging, dragScrollT = nil, nil, 0, false, 0;
++
++-- Row under the cursor (nearest row) and -1 / 1 when the cursor is above the first / below the last visible row.
++local function CharacterSelect_RowAtCursor(self)
++	local _, rawY = GetCursorPosition();
++	local scale = self:GetEffectiveScale();
++	local rows, minBottom, maxTop = {}, nil, nil;
++	for row = 1, MAX_CHARACTERS_DISPLAYED do
++		local b = _G["CharSelectCharacterButton"..row];
++		if ( b:IsShown() and b:GetTop() and b:GetBottom() ) then
++			table.insert(rows, row);
++			if ( not minBottom or b:GetBottom() < minBottom ) then minBottom = b:GetBottom(); end
++			if ( not maxTop or b:GetTop() > maxTop ) then maxTop = b:GetTop(); end
++		end
++	end
++	if ( #rows == 0 ) then
++		return nil, 0;
++	end
++	-- the cursor y may be in screen pixels or in frame units: take the reading that lies near the list
++	local y = rawY;
++	if ( scale and scale > 0 ) then
++		local scaled = rawY / scale;
++		if ( scaled >= minBottom - 300 and scaled <= maxTop + 300 ) then
++			y = scaled;
++		end
++	end
++	local bestRow, bestDist;
++	for _, row in ipairs(rows) do
++		local b = _G["CharSelectCharacterButton"..row];
++		local d = math.abs(y - (b:GetTop() + b:GetBottom()) / 2);
++		if ( not bestDist or d < bestDist ) then
++			bestRow, bestDist = row, d;
++		end
++	end
++	local edge = 0;
++	if ( y > maxTop ) then edge = -1; elseif ( y < minBottom ) then edge = 1; end
++	return bestRow, edge;
++end
++
++local function CharacterSelect_DragDown(self, button)
++	if ( button ~= "LeftButton" ) then
++		return;
++	end
++	local id = self:GetID();
++	if ( id < 1 or id > GetNumCharacters() ) then
++		return;
++	end
++	dragButton, dragFrom, dragging, dragScrollT = self, id, false, 0;
++	local _, y = GetCursorPosition();
++	dragStartY = y;
++end
++
++local function CharacterSelect_DragUpdate(self, elapsed)
++	if ( dragButton ~= self ) then
++		return;
++	end
++	if ( not dragging ) then
++		local _, y = GetCursorPosition();
++		if ( math.abs(y - dragStartY) > 14 ) then
++			dragging = true;
++			self:SetAlpha(0.6);
++		end
++		return;
++	end
++	local row, edge = CharacterSelect_RowAtCursor(self);
++	for i = 1, MAX_CHARACTERS_DISPLAYED do
++		local b = _G["CharSelectCharacterButton"..i];
++		if ( i == row ) then
++			b:LockHighlight();
++		else
++			b:UnlockHighlight();
++		end
++	end
++	if ( edge ~= 0 ) then
++		dragScrollT = dragScrollT + elapsed;
++		if ( dragScrollT > 0.3 ) then
++			dragScrollT = 0;
++			CharacterSelect_ScrollBy(edge);
++		end
++	else
++		dragScrollT = 0;
++	end
++end
++
++-- v47b: the Esteria roster (ECS) draws the rows from its own copy of the list; rebuild it so the new order shows at once.
++function CharacterSelect_RedrawEcs()
++	local ecs = _G.ECS;
++	if ( ecs and ecs.Integrate and type(ecs.Integrate.PostUpdate) == "function" ) then
++		pcall(ecs.Integrate.PostUpdate);
++	end
++end
++
++local function CharacterSelect_DragUp(self, button)
++	if ( dragButton ~= self ) then
++		return;
++	end
++	local from, wasDragging = dragFrom, dragging;
++	dragButton, dragFrom, dragging = nil, nil, false;
++	self:SetAlpha(1);
++	if ( not wasDragging ) then
++		return;
++	end
++	local row = CharacterSelect_RowAtCursor(self);
++	local to = from;
++	if ( row ) then
++		to = (CharacterSelect.scrollOffset or 0) + row;
++	end
++	to = math.max(1, math.min(to, GetNumCharacters()));
++	if ( to ~= from ) then
++		local newSelected = MoveCharacter(from, to);
++		if ( newSelected and newSelected > 0 ) then
++			CharacterSelect.selectedIndex = newSelected;
++		end
++	end
++	CharacterSelect_RefreshRows();
++	CharacterSelect_RedrawEcs();
++	CharacterSelect_RefreshPending = 3;
++end
++
++local function CharacterSelect_DragHide(self)
++	if ( dragButton == self ) then
++		dragButton, dragFrom, dragging = nil, nil, false;
++		self:SetAlpha(1);
++	end
++end
++
++function CharacterSelect_SetupDrag()
++	if ( CharacterSelect_DragReady or not MoveCharacter ) then
++		return;
++	end
++	CharacterSelect_DragReady = true;
++	for row = 1, MAX_CHARACTERS_DISPLAYED do
++		local b = _G["CharSelectCharacterButton"..row];
++		if ( b ) then
++			b:SetScript("OnMouseDown", CharacterSelect_DragDown);
++			b:SetScript("OnMouseUp", CharacterSelect_DragUp);
++			b:SetScript("OnUpdate", CharacterSelect_DragUpdate);
++			b:SetScript("OnHide", CharacterSelect_DragHide);
++		end
++	end
++end
++
+ -- Fill the visible rows from CharacterSelect.scrollOffset.
+ function CharacterSelect_RefreshRows()
++	CharacterSelect_SetupDrag();
+ 	local numChars = GetNumCharacters();
+ 	local offset = CharacterSelect.scrollOffset or 0;
+ 	local connected = IsConnectedToServer();
